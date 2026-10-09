@@ -7,6 +7,8 @@ import type { Alerter } from "../safety/alerts.js";
 import type { SpendTracker } from "../safety/spend.js";
 import type { Runner } from "../media/exec.js";
 import type { TtsProvider } from "../voice/types.js";
+import type { Publisher } from "../publish/types.js";
+import type { Platform } from "../config/index.js";
 import type { QueueName } from "./names.js";
 
 /** Payload carried by every job. `correlationId` follows a piece of content end to end. */
@@ -44,6 +46,8 @@ export interface Deps {
   /** Test/ops seams — production leaves these undefined and the real implementations are built from config. */
   tts?: TtsProvider[];
   runner?: Runner;
+  publishers?: Partial<Record<Platform, Publisher>>;
+  rng?: () => number;
 }
 
 /** Deterministic job id: re-enqueueing the same logical step is a no-op. BullMQ forbids ':' in ids. */

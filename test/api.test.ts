@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -100,6 +100,11 @@ describe("content, held, overview", () => {
     expect(d.topic).toBe("Hello");
     expect(d.embedding).toBeUndefined();
     expect(d.events).toHaveLength(1);
+    // contract with the dashboard's ContentDetail type: snake_case, same as the list endpoint (a camelCase detail crashed the drawer)
+    expect(d).toMatchObject({ id: c.id, correlation_id: c.correlationId, regen_count: 0, hook_style: null, status: "idea", script: null, qaResults: [], publications: [] });
+    expect(Object.keys(d)).not.toContain("correlationId");
+    const listRow = (await (await get("/api/content?status=idea")).json())[0];
+    for (const k of Object.keys(listRow).filter((k) => !["generator", "voice_provider", "dev_voice"].includes(k))) expect(d, `detail is missing list field ${k}`).toHaveProperty(k);
     expect((await get("/api/content/not-a-uuid")).status).toBe(400);
     expect((await get("/api/content/00000000-0000-4000-8000-000000000000")).status).toBe(404);
   });
@@ -129,6 +134,25 @@ describe("content, held, overview", () => {
     expect(Array.isArray(await (await get("/api/alerts")).json())).toBe(true);
     const a = await (await get("/api/analytics?days=7")).json();
     expect(a).toMatchObject({ dryRun: true, synthetic: true, series: [], top: [] });
+  });
+});
+
+describe("dashboard static serving", () => {
+  it("never caches index.html (a cached copy pins users to a stale bundle) but caches hashed assets forever, with SPA fallback", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dash-"));
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "index.html"), "<html>app</html>");
+    writeFileSync(join(dir, "assets", "index-abc123.js"), "console.log(1)");
+    const b = await boot({}, { dashboardDir: dir });
+    const home = await fetch(`${b.base}/`);
+    expect(await home.text()).toContain("app");
+    expect(home.headers.get("cache-control")).toBe("no-cache");
+    const spa = await fetch(`${b.base}/some/client/route`);
+    expect(await spa.text()).toContain("app");
+    expect(spa.headers.get("cache-control")).toBe("no-cache");
+    const asset = await fetch(`${b.base}/assets/index-abc123.js`);
+    expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect((await fetch(`${b.base}/api/nope`)).status).not.toBe(200); // the SPA fallback must not swallow API paths
   });
 });
 

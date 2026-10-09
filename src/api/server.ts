@@ -209,9 +209,26 @@ export function createApp(ctx: ApiContext): express.Express {
         res.status(404).json({ error: "not found" });
         return;
       }
-      const { embedding: _e, ...rest } = c;
+      // Same snake_case shape as the list endpoint (the dashboard's ContentDetail type); heavy/internal fields are left out.
       res.json({
-        ...rest,
+        id: c.id,
+        correlation_id: c.correlationId,
+        status: c.status,
+        pillar: c.pillar,
+        template: c.template,
+        topic: c.topic,
+        hook_style: c.hookStyle,
+        score: c.score,
+        regen_count: c.regenCount,
+        error: c.error,
+        failed_stage: c.failedStage,
+        created_at: c.createdAt,
+        status_changed_at: c.statusChangedAt,
+        qa_feedback: c.qaFeedback,
+        generator: c.script?.generator ?? null,
+        voice_provider: c.voice?.provider ?? null,
+        dev_voice: c.voice?.devVoice ?? null,
+        script: c.script ? { generator: c.script.generator, beats: c.script.beats ?? [], removed: c.script.removed ?? [], claims: c.script.claims ?? [] } : null,
         events: await listEvents(db, id),
         qaResults: (await db.query(`SELECT attempt, passed, scores, reasons, created_at FROM qa_results WHERE content_id = $1 ORDER BY id`, [id])).rows,
         publications: (await db.query(`SELECT id, platform, status, scheduled_at, published_at, url, external_id, error, dry_run FROM publications WHERE content_id = $1`, [id])).rows,
@@ -327,8 +344,18 @@ export function createApp(ctx: ApiContext): express.Express {
   // ---- dashboard (static build) ----
   const dist = ctx.dashboardDir ?? join(process.cwd(), "dashboard", "dist");
   if (existsSync(join(dist, "index.html"))) {
-    app.use(express.static(dist, { index: "index.html", maxAge: "1h" }));
-    app.get(/^\/(?!api|media|oauth|healthz).*/, (_req, res) => res.sendFile(join(resolve(dist), "index.html")));
+    // index.html must never be cached (it names the current bundle, so a cached copy pins users to a stale app after a
+    // deploy); the hashed files under /assets are content-addressed, so they can be cached forever.
+    app.use(
+      express.static(dist, {
+        index: false,
+        setHeaders: (res, path) => res.setHeader("Cache-Control", path.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache"),
+      }),
+    );
+    app.get(/^\/(?!api|media|oauth|healthz).*/, (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache");
+      res.sendFile(join(resolve(dist), "index.html"));
+    });
   }
 
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

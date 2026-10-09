@@ -25,6 +25,13 @@ export function App(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // If the server runs without an ADMIN_TOKEN (local dry-run only; live mode refuses to start that way), skip the login screen.
+  useEffect(() => {
+    if (authed) return;
+    fetch("/api/overview").then((r) => r.ok && setAuthed(true)).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const load = useCallback(() => {
     api<Overview>("/api/overview").then((o) => (setOverview(o), setError(null))).catch((e) => {
       if (e instanceof AuthError) (setToken(""), setAuthed(false));

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 export function BarChart({ data, height = 120, color = "var(--accent)" }: { data: Array<{ label: string; value: number }>; height?: number; color?: string }): ReactNode {
   if (data.length === 0) return <div className="muted">No data yet.</div>;
   const max = Math.max(1, ...data.map((d) => d.value));
-  const w = 100 / data.length;
+  const w = Math.min(100 / data.length, 7); // few data points must not become giant blocks
   return (
     <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="chart" role="img" aria-label="bar chart">
       {data.map((d, i) => {

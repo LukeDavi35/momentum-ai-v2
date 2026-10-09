@@ -32,6 +32,9 @@ Any one of these stops **all publishing** (ideation/rendering continue so nothin
 The switch is checked at three points — when a publish job starts, again immediately before every platform API call, and by the scheduler — so a stale queued post cannot slip past it. Posts that miss their slot while paused are moved to the next slot when you resume (they are never posted stale).
 **Resume:** dashboard → *Resume publishing* (or unset `KILL_SWITCH`).
 
+### Health check of all integrations
+`docker compose --profile tools run --rm tools npm run smoke` is read-only (it never posts). Run it after rotating a key or reconnecting an account; add `-- --alert` to also test the alert channel.
+
 ## 3. Rotate keys
 | Secret | How |
 |---|---|

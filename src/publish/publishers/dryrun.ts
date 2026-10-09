@@ -36,9 +36,11 @@ export class DryRunPublisher implements Publisher {
     return { externalId: id, url: `dryrun://${this.platform}/${id}`, warnings: [`dry run: payload written to ${file}`] };
   }
 
-  async metrics(externalId: string): Promise<Metrics> {
+  async metrics(externalId: string, ctx?: { checkpoint?: "1h" | "24h" | "7d" }): Promise<Metrics> {
     const h = createHash("sha1").update(externalId).digest();
-    const views = 200 + h.readUInt16BE(0) % 5000;
+    // views accumulate over time like real posts; ratios stay fixed per post
+    const growth = ctx?.checkpoint === "1h" ? 0.12 : ctx?.checkpoint === "24h" ? 0.55 : 1;
+    const views = Math.round((200 + (h.readUInt16BE(0) % 5000)) * growth);
     return {
       views,
       likes: Math.round(views * (0.03 + (h[2]! % 50) / 1000)),

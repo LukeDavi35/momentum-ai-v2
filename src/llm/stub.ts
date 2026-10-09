@@ -74,6 +74,15 @@ const sentences = (s: string): string[] =>
     .filter((x) => x.split(/\s+/).length >= 5);
 const words = (s: string): string[] => s.split(/\s+/).filter(Boolean);
 const capWords = (s: string, n: number): string => words(s).slice(0, n).join(" ");
+/** At most `max` characters, cut at a word boundary (on-screen text must fit the template; see qa/policy checkLayout). */
+const capChars = (s: string, max: number): string => {
+  const out: string[] = [];
+  for (const w of words(s)) {
+    if ([...out, w].join(" ").length > max) break;
+    out.push(w);
+  }
+  return out.join(" ");
+};
 
 const EVERGREEN: Record<string, string[]> = {
   training_tip: [
@@ -161,10 +170,10 @@ function stubScript(input: ScriptPromptInput) {
     beats,
     claims,
     visual: {
-      headline: capWords(input.topic, 8),
+      headline: capChars(capWords(input.topic, 8), 60),
       stat: statValue && statValue.length <= 24 ? statValue : null,
       statLabel: statValue ? capWords(claims[0]?.text ?? input.topic, 8) : null,
-      items: items.slice(0, 4),
+      items: items.slice(0, 4).map((i) => capChars(i, 50)),
     },
     variants: {
       tiktok: { caption: capWords(hook, 22), hashtags: pillarTags.slice(0, 4) },

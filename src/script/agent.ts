@@ -61,6 +61,7 @@ Rules:
 - Every number, name, date, result, record or quotation in a beat MUST appear in the sources above. If the sources don't say it, don't say it.
 - List each factual statement as a claim: {"id":"c1","text":"...","source":"S1","kind":"fact|stat|quote"}; for a quote also give "quote": the exact words. Beats list the claims they rely on in claimIds.
 - ${evergreen ? 'Because this is an evergreen template, tip/explainer statements may be {"kind":"general","source":null} claims, but they must contain NO numbers and NO proper names, and must not be individual medical, injury, diet-plan or supplement advice.' : 'Do not use kind "general" claims.'}
+- On-screen text must be SHORT: visual.headline <= 8 words and <= 60 characters, each item <= 6 words / 60 characters, stat <= 12 characters.
 - Never invent quotes. Never present medical/injury advice. No clickbait the facts can't support.
 ${PLATFORM_NOTES}
 ${feedback ? `\nA previous version FAILED review. Fix these problems:\n${feedback}\n` : ""}

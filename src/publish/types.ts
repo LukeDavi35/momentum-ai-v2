@@ -41,7 +41,7 @@ export interface Publisher {
   readonly platform: Platform;
   readonly live: boolean;
   publish(req: PublishRequest): Promise<PublishResult>;
-  metrics(externalId: string, ctx?: { caption?: string; publishedAt?: Date }): Promise<Metrics>;
+  metrics(externalId: string, ctx?: { caption?: string; publishedAt?: Date; checkpoint?: "1h" | "24h" | "7d" }): Promise<Metrics>;
 }
 
 /**

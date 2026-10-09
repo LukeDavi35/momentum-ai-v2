@@ -20,7 +20,8 @@
     "test:redis": "vitest run test/queue",
     "build:all": "npm run build && npm --prefix dashboard run build",
     "release": "tsx scripts/release.ts",
-    "test:ci": "vitest run"
+    "test:ci": "vitest run",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",

@@ -19,7 +19,7 @@ export async function runAnalytics(deps: Deps, data: JobData): Promise<Analytics
   const publisher = deps.publishers?.[pub.platform as "tiktok" | "instagram" | "youtube"];
   if (!publisher) throw new Error(`no publisher configured for ${pub.platform}`);
 
-  const m = await publisher.metrics(pub.external_id, { caption: pub.metadata?.meta?.caption, publishedAt: pub.published_at ? new Date(pub.published_at) : undefined });
+  const m = await publisher.metrics(pub.external_id, { caption: pub.metadata?.meta?.caption, publishedAt: pub.published_at ? new Date(pub.published_at) : undefined, checkpoint: data.checkpoint });
   if (m.views === undefined) throw new Error(`${pub.platform} metrics not available yet for ${pub.external_id}`); // BullMQ retries with backoff
 
   await db.query(

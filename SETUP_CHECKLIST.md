@@ -82,6 +82,9 @@ Dashboard → **Status → Connected accounts → Connect** for each platform an
 Expected: three green "connected" pills.
 
 ## 10. Rehearse before going live (30 min)
+0. **Smoke test (read-only, posts nothing):**
+   `docker compose --profile tools run --rm tools npm run smoke -- --alert`
+   Checks Postgres/Redis, every API key, each connected account (via read-only endpoints: TikTok creator-info, Instagram publishing quota, YouTube channel), whether live mode's prerequisites are met, and sends one test alert. Fix every ✘ before continuing. A TikTok line ending "posts will be private" means the app isn't audited yet.
 1. `docker compose --profile tools run --rm tools npm run dryrun` with your real API keys in `.env` — read the three generated pieces.
 2. **Alert + kill-switch drill:** click **Pause all publishing** on the dashboard. You should get a *critical* alert on your channel within seconds, and the red "PUBLISHING PAUSED" banner. Click **Resume publishing**.
 3. Confirm `config/schedule.json` (timezone, posts per day, peak times) and `config/limits.json` (spend caps, `maxPostsPerDay`) are what you want.

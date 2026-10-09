@@ -57,10 +57,25 @@ export function checkMetadata(platform: Platform, m: PlatformMetadata): PolicyVi
   return v;
 }
 
+/** On-screen text must fit the template: a long headline wraps past the chips/stat and overlaps them. */
+export const LAYOUT_LIMITS = { headline: 70, item: 60, stat: 14 } as const;
+
+export function checkLayout(script: ScriptDoc): PolicyViolation[] {
+  const v: PolicyViolation[] = [];
+  const over = (what: string, text: string | null | undefined, max: number) => {
+    if (text && text.length > max) v.push({ rule: "layout", where: "visual", excerpt: `${what} is ${text.length} chars (max ${max}) and would overflow the layout: "${text.slice(0, 40)}…"` });
+  };
+  over("headline", script.visual.headline, LAYOUT_LIMITS.headline);
+  over("stat", script.visual.stat, LAYOUT_LIMITS.stat);
+  for (const it of script.visual.items ?? []) over("item", it, LAYOUT_LIMITS.item);
+  return v;
+}
+
 export function checkPolicy(script: ScriptDoc, metadata: Partial<Record<Platform, PlatformMetadata>>, enabled: readonly Platform[] = PLATFORMS): { passed: boolean; violations: PolicyViolation[] } {
   const violations: PolicyViolation[] = [];
   scan(narrationOf(script), "narration", violations);
   for (const b of script.beats) if (b.onScreen) scan(b.onScreen, `onScreen:${b.id}`, violations);
+  violations.push(...checkLayout(script));
   scan(`${script.title}\n${script.visual.headline}\n${(script.visual.items ?? []).join("\n")}`, "title/visual", violations);
   for (const p of enabled) {
     const m = metadata[p];

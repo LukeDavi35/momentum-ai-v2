@@ -64,6 +64,8 @@ export interface EnqueuedJob {
 
 export async function makeDeps(opts: {
   reply?: (req: CompleteRequest) => unknown;
+  /** Use a specific provider (e.g. StubProvider) instead of the scripted FakeProvider. */
+  provider?: LlmProvider;
   billable?: boolean;
   env?: Record<string, string | undefined>;
   now?: Date;
@@ -74,7 +76,8 @@ export async function makeDeps(opts: {
   const log = silentLogger();
   const now = opts.now ?? new Date("2026-10-09T12:00:00Z");
   const spend = new SpendTracker(db, cfg.limits, cfg.pricing, () => now);
-  const provider = new FakeProvider(opts.reply ?? (() => ({})), opts.billable ?? false);
+  const fake = new FakeProvider(opts.reply ?? (() => ({})), opts.billable ?? false);
+  const provider = fake;
   const enqueued: EnqueuedJob[] = [];
   const enqueue: Enqueue = async (queue, data, o) => void enqueued.push({ queue, data, opts: o });
   const deps: Deps = {
@@ -83,7 +86,7 @@ export async function makeDeps(opts: {
     log,
     alerter: new Alerter(db, cfg.env, log),
     spend,
-    llm: new LlmClient(provider, spend, cfg.env, log),
+    llm: new LlmClient(opts.provider ?? fake, spend, cfg.env, log),
     embedder: new LocalHashEmbedder(),
     enqueue,
     now: () => now,

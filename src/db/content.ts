@@ -25,8 +25,9 @@ export const ALLOWED_TRANSITIONS: Record<ContentStatus, ContentStatus[]> = {
   voiced: ["rendered", "failed"],
   rendered: ["qa_passed", "qa_failed", "failed"],
   qa_passed: ["scheduled", "failed"],
-  // regeneration goes back to `idea` (with feedback); exhausted attempts go to `held`
-  qa_failed: ["idea", "held"],
+  // content failures regenerate from `idea` (with feedback); technical-only failures re-voice/re-render
+  // from `scripted` (script is kept); exhausted attempts go to `held`
+  qa_failed: ["idea", "scripted", "held"],
   // held -> idea is the ONLY way out, and it is a manual release (scripts/release.ts)
   held: ["idea"],
   scheduled: ["published", "failed"],

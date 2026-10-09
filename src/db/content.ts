@@ -245,3 +245,14 @@ export async function findStuck(db: Db, statuses: ContentStatus[], olderThanMs: 
   );
   return res.rows.map(mapRow);
 }
+
+/**
+ * Dead-letter path: move content to `failed` from whatever in-flight state it is in.
+ * Terminal / non-job states (published, measured, held, failed, qa_failed) are left alone.
+ */
+export async function failContent(db: Db, id: string, stage: string, error: string): Promise<boolean> {
+  const c = await getContent(db, id);
+  if (!c || !ALLOWED_TRANSITIONS[c.status].includes("failed")) return false;
+  const moved = await transition(db, id, c.status, "failed", { error: error.slice(0, 1000), failed_stage: stage }, { stage, detail: { deadLettered: true } });
+  return moved !== null;
+}

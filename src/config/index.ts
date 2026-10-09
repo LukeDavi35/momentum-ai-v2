@@ -20,6 +20,8 @@ export const envSchema = z.object({
   DRY_RUN: bool(true),
   /** Dry-run only: publish ~immediately and compress analytics checkpoints to seconds, so a demo finishes in minutes. */
   DRY_RUN_FAST: bool(false),
+  /** Fast-mode time unit: publish slots are step·(1,2,3)s out and analytics checkpoints step·(1,2,3)s after posting. */
+  DRY_RUN_FAST_STEP_S: z.coerce.number().positive().default(5),
   KILL_SWITCH: bool(false),
   MAX_POSTS_PER_DAY: z.coerce.number().int().positive().default(9),
   CONFIG_DIR: z.string().default("./config"),

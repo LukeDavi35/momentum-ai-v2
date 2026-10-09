@@ -10,3 +10,9 @@ export const PROVIDER_QUEUES: Record<"anthropic" | "elevenlabs" | "openai" | "re
   openai: ["voice"],
   render: ["render"],
 };
+
+/**
+ * Housekeeping runs on its own queue so it keeps working when a spend cap pauses a pipeline queue:
+ * token refresh, stuck-item reconciliation, backlog monitoring, spend-resume, weekly learning.
+ */
+export const MAINTENANCE_QUEUE = "maintenance";

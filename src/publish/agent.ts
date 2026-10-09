@@ -15,10 +15,13 @@ import { PublishError, type Publisher } from "./types.js";
 export type PublishOutcome = "scheduled" | "published" | "rescheduled" | "skipped" | "failed";
 
 const CHECKPOINT_DELAY_MS = { "1h": 3600_000, "24h": 86400_000, "7d": 7 * 86400_000 } as const;
-const FAST_CHECKPOINT_DELAY_MS = { "1h": 20_000, "24h": 40_000, "7d": 60_000 } as const;
 const LATE_RESCHEDULE_MS = 6 * 3600_000;
 
 export const fastMode = (deps: Deps): boolean => deps.cfg.env.DRY_RUN && deps.cfg.env.DRY_RUN_FAST;
+export const fastStepMs = (deps: Deps): number => deps.cfg.env.DRY_RUN_FAST_STEP_S * 1000;
+/** Real checkpoint delays, or compressed to seconds in dry-run fast mode (so demos/tests finish quickly). */
+export const checkpointDelays = (deps: Deps): Record<"1h" | "24h" | "7d", number> =>
+  fastMode(deps) ? { "1h": fastStepMs(deps), "24h": 2 * fastStepMs(deps), "7d": 3 * fastStepMs(deps) } : CHECKPOINT_DELAY_MS;
 const enabled = (deps: Deps): Platform[] => PLATFORMS.filter((p) => deps.cfg.schedule.platforms[p].enabled);
 
 export async function runPublish(deps: Deps, data: JobData): Promise<PublishOutcome> {
@@ -52,7 +55,7 @@ export async function schedulePublications(deps: Deps, data: JobData): Promise<P
   let created = 0;
   for (const [idx, platform] of enabled(deps).entries()) {
     const taken = await takenTimes(deps, platform);
-    const slot = fastMode(deps) ? new Date(now.getTime() + 15_000 * (idx + 1)) : pickSlot({ cfg, platform, now, taken, hourWeights: weights.hours, rng: deps.rng });
+    const slot = fastMode(deps) ? new Date(now.getTime() + fastStepMs(deps) * (idx + 1)) : pickSlot({ cfg, platform, now, taken, hourWeights: weights.hours, rng: deps.rng });
     if (!slot) {
       log.warn({ contentId: content.id, platform }, "no free publishing slot within the horizon; skipping platform");
       continue;
@@ -90,7 +93,7 @@ async function reschedule(deps: Deps, pub: PubRow, reason: string): Promise<void
   const now = deps.now();
   const taken = (await takenTimes(deps, pub.platform)).filter((t) => t.getTime() !== new Date(pub.scheduled_at).getTime());
   const weights = (await getCurrentWeights(db)).weights;
-  const slot = fastMode(deps) ? new Date(now.getTime() + 30_000) : (pickSlot({ cfg, platform: pub.platform, now, taken, hourWeights: weights.hours, rng: deps.rng }) ?? new Date(now.getTime() + 3600_000));
+  const slot = fastMode(deps) ? new Date(now.getTime() + 2 * fastStepMs(deps)) : (pickSlot({ cfg, platform: pub.platform, now, taken, hourWeights: weights.hours, rng: deps.rng }) ?? new Date(now.getTime() + 3600_000));
   const n = (pub.metadata.reschedules ?? 0) + 1;
   await db.query(`UPDATE publications SET scheduled_at = $2, status = 'scheduled', metadata = jsonb_set(metadata, '{reschedules}', $3::jsonb), updated_at = now() WHERE id = $1`, [pub.id, slot.toISOString(), JSON.stringify(n)]);
   const content = await getContent(db, pub.content_id);
@@ -166,7 +169,7 @@ export async function publishOne(deps: Deps, data: JobData): Promise<PublishOutc
     log.info({ contentId: content.id, correlationId: content.correlationId, platform: pub.platform, externalId: result.externalId, url: result.url, live: publisher.live }, "published");
     for (const w of result.warnings ?? []) if (publisher.live) await deps.alerter.send({ key: `publish_warning:${pub.platform}`, severity: "warning", title: `${pub.platform} publish warning`, body: w, throttleMs: 6 * 3600_000 });
 
-    const delays = fastMode(deps) ? FAST_CHECKPOINT_DELAY_MS : CHECKPOINT_DELAY_MS;
+    const delays = checkpointDelays(deps);
     for (const cp of cfg.schedule.analytics.checkpoints) {
       await deps.enqueue("analytics", { publicationId: pub.id, contentId: content.id, correlationId: content.correlationId, checkpoint: cp }, { delayMs: delays[cp] });
     }

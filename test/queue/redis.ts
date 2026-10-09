@@ -1,10 +1,13 @@
 import { Redis } from "ioredis";
 
-export const REDIS_TEST_URL = process.env.REDIS_TEST_URL ?? "redis://localhost:6390/1";
+const BASE = (process.env.REDIS_TEST_URL ?? "redis://localhost:6390").replace(/\/\d+$/, "");
+/** Each queue test file gets its own Redis DB so parallel files can never flush each other's jobs. */
+export const redisUrl = (db: number): string => `${BASE}/${db}`;
+export const REDIS_TEST_URL = redisUrl(1);
 
 /** True if a Redis is reachable. Queue tests are skipped (loudly, via describe.skipIf) when it isn't. */
 export async function redisUp(): Promise<boolean> {
-  const r = new Redis(REDIS_TEST_URL, { lazyConnect: true, maxRetriesPerRequest: 1, retryStrategy: () => null });
+  const r = new Redis(redisUrl(1), { lazyConnect: true, maxRetriesPerRequest: 1, retryStrategy: () => null });
   try {
     await r.connect();
     await r.ping();

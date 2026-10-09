@@ -17,7 +17,7 @@ import { createQueues, makeEnqueue } from "../../src/queue/queues.js";
 import { startWorkers } from "../../src/queue/worker.js";
 import type { TtsProvider } from "../../src/voice/types.js";
 import { makeDeps } from "../helpers.js";
-import { REDIS_TEST_URL, redisUp, waitFor } from "./redis.js";
+import { redisUp, redisUrl, waitFor } from "./redis.js";
 
 const up = await redisUp();
 const CID = "00000000-0000-4000-8000-0000000000aa";
@@ -55,7 +55,7 @@ const fakeTts: TtsProvider = {
 describe.skipIf(!up)("full pipeline through real BullMQ queues (DRY_RUN, fast mode)", () => {
   let redis: Redis;
   beforeAll(() => {
-    redis = createRedis(REDIS_TEST_URL);
+    redis = createRedis(redisUrl(2));
   });
   afterAll(async () => {
     await redis.flushdb();

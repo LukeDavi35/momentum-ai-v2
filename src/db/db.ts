@@ -71,7 +71,8 @@ class PgliteDb implements Db {
 
   async query<T = any>(sql: string, params: unknown[] = []): Promise<QueryResult<T>> {
     const res = await this.target.query<T>(sql, params as any[]);
-    return { rows: res.rows, rowCount: res.affectedRows ?? res.rows.length };
+    // PGlite reports affectedRows: 0 for SELECTs, so take the larger of the two
+    return { rows: res.rows, rowCount: Math.max(res.affectedRows ?? 0, res.rows.length) };
   }
 
   async exec(sql: string): Promise<void> {

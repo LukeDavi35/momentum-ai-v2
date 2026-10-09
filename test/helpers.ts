@@ -32,3 +32,62 @@ export function testConfig(overrides: Record<string, string | undefined> = {}): 
 }
 
 export const silentLogger = (): Logger => createLogger("silent");
+
+import { LocalHashEmbedder } from "../src/ideate/embeddings.js";
+import { LlmClient } from "../src/llm/client.js";
+import type { CompleteRequest, CompleteResponse, LlmProvider } from "../src/llm/types.js";
+import type { Deps, Enqueue, JobData } from "../src/queue/types.js";
+import { Alerter } from "../src/safety/alerts.js";
+import { SpendTracker } from "../src/safety/spend.js";
+import type { QueueName } from "../src/queue/names.js";
+
+/** Fake LLM: a function from the request to a JSON-serialisable reply (or a raw string / thrown error). */
+export class FakeProvider implements LlmProvider {
+  readonly name = "fake";
+  constructor(
+    private readonly reply: (req: CompleteRequest) => unknown,
+    readonly billable = false,
+  ) {}
+  calls: CompleteRequest[] = [];
+  async complete(req: CompleteRequest): Promise<CompleteResponse> {
+    this.calls.push(req);
+    const r = this.reply(req);
+    return { text: typeof r === "string" ? r : JSON.stringify(r), inputTokens: 100, outputTokens: 50 };
+  }
+}
+
+export interface EnqueuedJob {
+  queue: QueueName;
+  data: JobData;
+  opts?: { delayMs?: number; jobId?: string };
+}
+
+export async function makeDeps(opts: {
+  reply?: (req: CompleteRequest) => unknown;
+  billable?: boolean;
+  env?: Record<string, string | undefined>;
+  now?: Date;
+  fetchImpl?: typeof fetch;
+} = {}): Promise<{ deps: Deps; db: Db; enqueued: EnqueuedJob[]; provider: FakeProvider }> {
+  const db = await testDb();
+  const cfg = testConfig(opts.env);
+  const log = silentLogger();
+  const now = opts.now ?? new Date("2026-10-09T12:00:00Z");
+  const spend = new SpendTracker(db, cfg.limits, cfg.pricing, () => now);
+  const provider = new FakeProvider(opts.reply ?? (() => ({})), opts.billable ?? false);
+  const enqueued: EnqueuedJob[] = [];
+  const enqueue: Enqueue = async (queue, data, o) => void enqueued.push({ queue, data, opts: o });
+  const deps: Deps = {
+    cfg,
+    db,
+    log,
+    alerter: new Alerter(db, cfg.env, log),
+    spend,
+    llm: new LlmClient(provider, spend, cfg.env, log),
+    embedder: new LocalHashEmbedder(),
+    enqueue,
+    now: () => now,
+    fetchImpl: opts.fetchImpl,
+  };
+  return { deps, db, enqueued, provider };
+}

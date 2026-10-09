@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "./db.js";
 import type { Pillar, Template } from "../config/index.js";
+import type { Embedding } from "../ideate/embeddings.js";
 
 export const CONTENT_STATUSES = [
   "idea",
@@ -59,7 +60,7 @@ export interface Content {
   regenCount: number;
   qaFeedback: string | null;
   sourceItemIds: string[];
-  embedding: number[] | null;
+  embedding: Embedding | null;
   error: string | null;
   failedStage: string | null;
   createdAt: Date;
@@ -102,7 +103,7 @@ export interface NewContent {
   idea: Record<string, any>;
   score?: number | null;
   sourceItemIds: string[];
-  embedding?: number[] | null;
+  embedding?: Embedding | null;
   correlationId?: string;
 }
 

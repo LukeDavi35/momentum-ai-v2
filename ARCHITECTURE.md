@@ -118,15 +118,15 @@ src/queue       queues, worker wrapper, scheduler,         src/api         Expre
 src/llm         Anthropic provider, labelled stub, client  src/media       ffmpeg/ffprobe runner
 src/ingest      RSS/Atom, Trends, Reddit, store            dashboard/      React (Vite) control room
 src/ideate      clustering, scoring, weights, embeddings   scripts/        dryrun, release, rollback
-src/script      writer, templates, types                   test/           217 tests (see §2)
+src/script      writer, templates, types                   test/           244 tests (see §2)
 src/voice       ElevenLabs, OpenAI, dev voice, alignment   config/         schedule, pillars, qa, limits, pricing, sources
-src/render      captions, visuals, ffmpeg + Remotion renderers, shared assembly
+src/render      captions, visuals, ffmpeg + Remotion renderers, shared assembly (adaptive audio levelling)
 remotion/       React compositions (Momentum.tsx) bundled by @remotion/bundler
 src/qa          factcheck, policy, technical, reviewer, gate
 ```
 
 ## 2. How it is verified
-- **217 tests**, run inside Docker against **real Postgres 16, real Redis 7 and real ffmpeg** (`docker compose --profile tools run --rm tools npm test`); locally the DB falls back to PGlite and the ffmpeg tests skip.
+- **244 tests** (17 files), run inside Docker against **real Postgres 16, real Redis 7, real ffmpeg and a real Chromium** (`WITH_CHROMIUM=true docker compose --profile tools run --rm -e CHROMIUM_PATH=/usr/bin/chromium tools npx vitest run`); on a laptop without those, the DB falls back to PGlite and the 9 real-media tests skip (235 run).
 - Real BullMQ tests cover idempotent enqueue, retry/backoff, dead-lettering, kill-switch delay, spend-cap pause/resume, graceful shutdown, and a full ideate→measured run.
 - The ffmpeg test renders **all five templates** and runs the *real* QA technical gate on each output.
 - `npm run dryrun` runs the whole loop with real feeds and prints three complete pieces; nothing in DRY_RUN can reach a platform API (`buildPublishers` has no live branch when `DRY_RUN=true`).

@@ -1,5 +1,5 @@
 import { loadConfig, loadEnv, type AppConfig } from "../src/config/index.js";
-import { openPglite, type Db } from "../src/db/db.js";
+import { openPglite, openPostgres, type Db } from "../src/db/db.js";
 import { createLogger, type Logger } from "../src/logger.js";
 
 let shared: Db | undefined;
@@ -9,9 +9,9 @@ let shared: Db | undefined;
  * tests, so every test still starts from an empty database.
  */
 export async function testDb(): Promise<Db> {
-  shared ??= await openPglite();
+  shared ??= process.env.TEST_DATABASE_URL ? await openIsolatedPostgres(process.env.TEST_DATABASE_URL) : await openPglite();
   const tables = await shared.query<{ tablename: string }>(
-    `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'`,
+    `SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename <> 'schema_migrations'`,
   );
   await shared.exec(`TRUNCATE ${tables.rows.map((t) => t.tablename).join(", ")} RESTART IDENTITY CASCADE`);
   return shared;
@@ -93,4 +93,15 @@ export async function makeDeps(opts: {
     fetchImpl: opts.fetchImpl,
   };
   return { deps, db, enqueued, provider };
+}
+
+/** Real Postgres, one private schema per test file/process so parallel files never see each other's rows. */
+async function openIsolatedPostgres(url: string): Promise<Db> {
+  const schema = `t_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
+  const admin = await openPostgres(url);
+  await admin.exec(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+  await admin.close();
+  const u = new URL(url);
+  u.searchParams.set("options", `-c search_path=${schema}`);
+  return openPostgres(u.toString());
 }

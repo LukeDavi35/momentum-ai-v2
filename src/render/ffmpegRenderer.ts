@@ -41,6 +41,7 @@ export function parseLoudnorm(stderr: string): LoudnessMeasure {
   const m = stderr.match(/\{[\s\S]*?"input_i"[\s\S]*?\}/);
   if (!m) throw new Error("could not find loudnorm measurement in ffmpeg output");
   const j = JSON.parse(m[0]);
+  if (!Number.isFinite(Number(j.input_i))) throw new Error("the voiceover audio is silent or unmeasurable");
   return { input_i: j.input_i, input_tp: j.input_tp, input_lra: j.input_lra, input_thresh: j.input_thresh, target_offset: j.target_offset };
 }
 
@@ -71,38 +72,101 @@ export interface FfmpegRenderInput {
   voice: VoiceDoc;
   dir: string;
   runner?: Runner;
+  /** QA retry number (0 = first render). Each retry adds 1 dB of true-peak headroom, so a retry is never an identical re-run. */
+  attempt?: number;
 }
 
-export async function renderWithFfmpeg(input: FfmpegRenderInput): Promise<RenderResult> {
-  const { cfg, template, script, voice, dir } = input;
+/** What the visuals come from: a generated gradient + ASS visual track (FFmpeg renderer) or a pre-rendered video (Remotion). */
+export type VisualBase = { kind: "gradient"; visualAssPath: string } | { kind: "video"; path: string };
+
+export interface AssembleInput extends FfmpegRenderInput {
+  base: VisualBase;
+  renderer: RenderResult["renderer"];
+}
+
+/**
+ * How the voiceover is levelled to -14 LUFS under a true-peak ceiling.
+ *
+ * Why it is adaptive: linear loudnorm can only reach -14 LUFS if the voice's crest factor (peak minus average
+ * loudness) is under ~11 dB, and TTS speech is typically 15-19 dB (the flat dev voice measured -20 LUFS with
+ * -1 dBTP peaks). Compressors don't tame short peaks; a LIMITER ahead of loudnorm does (measured on real speech:
+ * -17.6 LUFS without it, -14.6 with it). But a fixed ceiling would crush natural voices, so the ceiling is set
+ * relative to the measured loudness: `loudness + crestBudgetDb`. Each QA retry tightens the budget, so a retry is
+ * a genuinely different attempt. A final brick-wall limiter keeps the AAC encode from overshooting QA's -1 dBTP.
+ */
+export interface AudioPlan {
+  pre: string;
+  crestBudgetDb: number;
+  tp: number;
+  finalLimiter: string;
+  label: string;
+}
+export function audioPlan(attempt = 0): AudioPlan {
+  const steps = [
+    { r: 2, t: 0.063, budget: 9, label: "gentle compression, adaptive limiter (+9 dB crest budget)" },
+    { r: 3, t: 0.05, budget: 7, label: "firmer compression, tighter limiter (+7 dB)" },
+    { r: 4, t: 0.04, budget: 5, label: "heavy compression, tight limiter (+5 dB)" },
+  ] as const;
+  const st = steps[Math.min(Math.max(attempt, 0), steps.length - 1)]!;
+  return {
+    pre: `acompressor=threshold=${st.t}:ratio=${st.r}:attack=15:release=150`,
+    crestBudgetDb: st.budget,
+    tp: -3,
+    finalLimiter: "alimiter=limit=0.708:attack=5:release=50:level=disabled", // -3 dBFS: leaves ~2 dB for AAC overshoot before QA's -1 dBTP limit
+    label: st.label,
+  };
+}
+
+/** Pre-loudnorm limiter for a measured voice, or null when its peaks already fit under the ceiling. */
+export function adaptiveLimiter(measured: { input_i: string; input_tp: string }, plan: AudioPlan): string | null {
+  const lufs = Number(measured.input_i);
+  const peak = Number(measured.input_tp);
+  if (!Number.isFinite(lufs) || !Number.isFinite(peak)) return null;
+  const ceilingDb = Math.min(-3, Math.max(-24, lufs + plan.crestBudgetDb));
+  if (peak <= ceilingDb) return null;
+  return `alimiter=limit=${Math.pow(10, ceilingDb / 20).toFixed(4)}:attack=1:release=30:level=disabled`;
+}
+
+export const totalDuration = (voice: Pick<VoiceDoc, "durationS">): number => Math.round((voice.durationS + TAIL_S) * 100) / 100;
+
+/**
+ * Shared final assembly for BOTH renderers: two-pass loudness normalisation of the voiceover to -14 LUFS,
+ * word-highlighted captions burned in, a progress bar, H.264/AAC with faststart, plus the cover image.
+ */
+export async function assemble(input: AssembleInput): Promise<RenderResult> {
+  const { cfg, template, script, voice, dir, base } = input;
   const runner = input.runner ?? run;
   const ff = cfg.env.FFMPEG_PATH;
-  const D = Math.round((voice.durationS + TAIL_S) * 100) / 100;
+  const D = totalDuration(voice);
 
   const cues = buildCaptionCues(voice.words, D);
   const captionsPath = join(dir, "captions.ass");
-  const visualPath = join(dir, "visual.ass");
   writeFileSync(captionsPath, captionsToAss(cues, THEMES[template].accentBgr));
-  writeFileSync(visualPath, buildVisualAss(template, script, voice.beats, D));
 
-  // pass 1: measure the voiceover's loudness so pass 2 can normalise it linearly to the target
-  const p1 = await runner(ff, ["-hide_banner", "-nostats", "-i", voice.audioPath, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"]);
-  const m = parseLoudnorm(p1.stderr);
+  // measure (after compression) -> choose the limiter ceiling from the voice's own loudness -> measure again -> linear normalise
+  const plan = audioPlan(input.attempt);
+  const measure = async (chain: string): Promise<LoudnessMeasure> =>
+    parseLoudnorm((await runner(ff, ["-hide_banner", "-nostats", "-i", voice.audioPath, "-af", `${chain},loudnorm=I=-14:TP=${plan.tp}:LRA=11:print_format=json`, "-f", "null", "-"])).stderr);
+  const m0 = await measure(plan.pre);
+  const limiter = adaptiveLimiter(m0, plan);
+  const chain = limiter ? `${plan.pre},${limiter}` : plan.pre;
+  const m = limiter ? await measure(chain) : m0;
   const af =
-    `loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true,` +
-    `apad=pad_dur=2,atrim=0:${D.toFixed(2)}`;
+    `${chain},loudnorm=I=-14:TP=${plan.tp}:LRA=11:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true,` +
+    `${plan.finalLimiter},apad=pad_dur=2,atrim=0:${D.toFixed(2)}`;
 
   const videoPath = join(dir, "video.mp4");
-  const bg = await backgroundSource(cfg, runner, template, D);
+  const visualOverlay = base.kind === "gradient" ? `ass=${filterPath(base.visualAssPath)},` : "";
+  const bgArgs = base.kind === "gradient" ? await backgroundSource(cfg, runner, template, D) : ["-i", base.path];
   const filter =
-    `[0:v]ass=${filterPath(visualPath)},ass=${filterPath(captionsPath)}[base];` +
+    `[0:v]scale=1080:1920,${visualOverlay}ass=${filterPath(captionsPath)}[base];` +
     `[2:v]format=rgba[bar];[base][bar]overlay=x='-w+w*t/${D.toFixed(2)}':y=H-14:shortest=1[v];` +
     `[1:a]${af}[a]`;
   await runner(
     ff,
     [
       "-y", "-hide_banner", "-nostats",
-      ...bg,
+      ...bgArgs,
       "-i", voice.audioPath,
       "-f", "lavfi", "-i", `color=c=white@0.85:s=1080x14:r=${FPS}:d=${D.toFixed(2)}`,
       "-filter_complex", filter,
@@ -124,11 +188,11 @@ export async function renderWithFfmpeg(input: FfmpegRenderInput): Promise<Render
 
   const info = await probe(cfg, videoPath, runner);
   return {
-    renderer: "ffmpeg",
+    renderer: input.renderer,
     videoPath,
     coverPath,
     captionsPath,
-    visualPath,
+    visualPath: base.kind === "gradient" ? base.visualAssPath : base.path,
     durationS: info.durationS,
     width: info.width ?? 0,
     height: info.height ?? 0,
@@ -137,4 +201,11 @@ export async function renderWithFfmpeg(input: FfmpegRenderInput): Promise<Render
     cues,
     loudnessIn: m,
   };
+}
+
+export async function renderWithFfmpeg(input: FfmpegRenderInput): Promise<RenderResult> {
+  const D = totalDuration(input.voice);
+  const visualAssPath = join(input.dir, "visual.ass");
+  writeFileSync(visualAssPath, buildVisualAss(input.template, input.script, input.voice.beats, D));
+  return assemble({ ...input, base: { kind: "gradient", visualAssPath }, renderer: "ffmpeg" });
 }

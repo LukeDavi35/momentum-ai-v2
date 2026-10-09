@@ -25,9 +25,9 @@ export const ALLOWED_TRANSITIONS: Record<ContentStatus, ContentStatus[]> = {
   voiced: ["rendered", "failed"],
   rendered: ["qa_passed", "qa_failed", "failed"],
   qa_passed: ["scheduled", "failed"],
-  // content failures regenerate from `idea` (with feedback); technical-only failures re-voice/re-render
-  // from `scripted` (script is kept); exhausted attempts go to `held`
-  qa_failed: ["idea", "scripted", "held"],
+  // content failures regenerate from `idea` (with feedback); technical-only failures keep the script and
+  // either re-render (`voiced`: the voiceover is fine) or re-voice (`scripted`); exhausted attempts go to `held`
+  qa_failed: ["idea", "scripted", "voiced", "held"],
   // held -> idea is the ONLY way out, and it is a manual release (scripts/release.ts)
   held: ["idea"],
   scheduled: ["published", "failed"],
@@ -237,12 +237,12 @@ export async function countByStatus(db: Db): Promise<Record<string, number>> {
   return out;
 }
 
-/** Content parked in a non-terminal status for longer than `olderThanMs` — input to the reconciler. */
-export async function findStuck(db: Db, statuses: ContentStatus[], olderThanMs: number): Promise<Content[]> {
-  const res = await db.query(
-    `SELECT * FROM content WHERE status = ANY($1::text[]) AND status_changed_at < now() - ($2 || ' milliseconds')::interval ORDER BY status_changed_at`,
-    [statuses, String(olderThanMs)],
-  );
+/** Content parked in a non-terminal status for longer than `olderThanMs` — input to the reconciler. Uses the caller's clock, not the DB's. */
+export async function findStuck(db: Db, statuses: ContentStatus[], olderThanMs: number, now: Date = new Date()): Promise<Content[]> {
+  const res = await db.query(`SELECT * FROM content WHERE status = ANY($1::text[]) AND status_changed_at < $2 ORDER BY status_changed_at`, [
+    statuses,
+    new Date(now.getTime() - olderThanMs).toISOString(),
+  ]);
   return res.rows.map(mapRow);
 }
 

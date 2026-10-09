@@ -187,6 +187,17 @@ describe("runIdeation", () => {
     expect(provider.calls).toHaveLength(0); // no LLM spend at all
   });
 
+  it("shows the LLM our own recent top performers (internal items) as inspiration, without clustering them as news", async () => {
+    const { deps, db, provider } = await makeDeps({ reply });
+    await storeItems(db, deps.embedder, [...items(), { source: "internal", kind: "internal", title: "Why 5k pacing matters", summary: "our post", metrics: { perf: 2.1 }, publishedAt: hoursAgo(5) }], NOW);
+    await runIdeation(deps, { correlationId: CID });
+    const prompt = provider.calls.find((c) => c.task === "ideate.propose")!.prompt;
+    expect(prompt).toContain("Our own recent top performers");
+    expect(prompt).toContain("Why 5k pacing matters");
+    expect(prompt.match(/factual_sources=/g)!.length).toBeGreaterThan(0);
+    expect(prompt.split("Current story clusters:")[1]).not.toContain("Why 5k pacing matters"); // not treated as a story
+  });
+
   it("skips quietly when there are no source items", async () => {
     const { deps } = await makeDeps({ reply });
     expect((await runIdeation(deps, { correlationId: CID })).skippedReason).toBe("no_source_items");

@@ -1,0 +1,110 @@
+name: momentum-v2
+
+x-app: &app
+  build:
+    context: .
+    target: runtime
+    args:
+      WITH_CHROMIUM: ${WITH_CHROMIUM:-false}
+  image: momentum-v2:latest
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  environment: &env
+    NODE_ENV: production
+    DATABASE_URL: postgres://momentum:${POSTGRES_PASSWORD:-momentum}@postgres:5432/momentum
+    REDIS_URL: redis://redis:6379
+    DRY_RUN: ${DRY_RUN:-true}
+    RUN_ON_BOOT: ${RUN_ON_BOOT:-true}
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  volumes:
+    - media:/app/out
+    - reports:/app/reports
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: momentum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-momentum}
+      POSTGRES_DB: momentum
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U momentum -d momentum"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ requires noeviction: evicting a queue key would silently drop jobs.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *app
+    command: ["node", "dist/main.js"]
+    ports: ["${API_PORT:-8080}:8080"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["node", "dist/worker.js"]
+    # let in-flight jobs (a render can take a minute) finish on `docker compose stop`
+    stop_grace_period: 90s
+    environment:
+      <<: *env
+      SHUTDOWN_TIMEOUT_MS: "80000"
+    healthcheck:
+      # heartbeat file is only refreshed while the worker can reach Redis
+      test: ["CMD", "node", "-e", "const s=require('fs').statSync('/tmp/worker-heartbeat');process.exit(Date.now()-s.mtimeMs<60000?0:1)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # `docker compose --profile tools run --rm tools npm test`  /  `... npm run dryrun`
+  tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tools
+      args:
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-false}
+    image: momentum-v2-tools:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://momentum:${POSTGRES_PASSWORD:-momentum}@postgres:5432/momentum
+      TEST_DATABASE_URL: postgres://momentum:${POSTGRES_PASSWORD:-momentum}@postgres:5432/momentum
+      REDIS_URL: redis://redis:6379
+      REDIS_TEST_URL: redis://redis:6379
+      DRY_RUN: "true"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - ./out:/app/out
+      - ./reports:/app/reports
+
+volumes:
+  pgdata:
+  redisdata:
+  media:
+  reports:

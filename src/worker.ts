@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { bootstrap } from "./bootstrap.js";
 import { HANDLERS } from "./queue/handlers.js";
 import { makeMaintenanceHandler } from "./queue/maintenance.js";
@@ -13,6 +14,18 @@ async function main(): Promise<void> {
   const handle = startWorkers(app.deps, app.qs, app.redis, HANDLERS, makeMaintenanceHandler(app.qs, app.tokens));
   if (process.env.RUN_ON_BOOT !== "false") await bootKick(app.qs);
   log.info({ queues: handle.workers.map((w) => w.name), dryRun: cfg.env.DRY_RUN }, "workers running");
+
+  // Heartbeat for the Docker healthcheck: only refreshed while Redis answers, so a wedged worker gets restarted.
+  const beat = async () => {
+    try {
+      if ((await app.redis.ping()) === "PONG") writeFileSync(process.env.HEARTBEAT_FILE ?? "/tmp/worker-heartbeat", String(Date.now()));
+    } catch {
+      /* no heartbeat -> healthcheck fails -> container restarts */
+    }
+  };
+  await beat();
+  const hb = setInterval(() => void beat(), 15_000);
+  hb.unref();
 
   let stopping = false;
   const shutdown = async (signal: string) => {

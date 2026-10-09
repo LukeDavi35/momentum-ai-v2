@@ -257,8 +257,18 @@ describe("runQa gate", () => {
     expect((row.qa as any).reviewerSkipped).toBe(true); // no LLM review is paid for when deterministic checks already failed
   });
 
-  it("a technical-only failure re-voices and re-renders but keeps the script", async () => {
+  it("a render-side technical failure (loudness) re-renders only: the paid voiceover and the script are kept", async () => {
     const { deps, db, id, enqueued } = await renderedContent({ runner: fakeRunner({ loudI: -24 }) });
+    expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("rerendering");
+    const row = (await getContent(db, id))!;
+    expect(row).toMatchObject({ status: "voiced", regenCount: 1, render: null });
+    expect(row.voice).not.toBeNull(); // no second TTS bill
+    expect(row.script).not.toBeNull();
+    expect(enqueued.at(-1)).toMatchObject({ queue: "render", data: { regen: 1 } });
+  });
+
+  it("a voice-side technical failure (speech too long for the platform) re-voices and re-renders, keeping the script", async () => {
+    const { deps, db, id, enqueued } = await renderedContent({ runner: fakeRunner({ durationS: 75 }) });
     expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("rerendering");
     const row = (await getContent(db, id))!;
     expect(row).toMatchObject({ status: "scripted", regenCount: 1, voice: null, render: null });
@@ -304,5 +314,7 @@ describe("runQa gate", () => {
     });
     expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("rerendering");
     expect(((await getContent(db, id))!.qa as any).failures[0].reason).toContain("analysis");
+    // an unanalysable video is not provably a render-side problem, so it falls back to the safe full redo
+    expect((await getContent(db, id))!.status).toBe("scripted");
   });
 });

@@ -36,7 +36,7 @@ export async function reconcile(deps: Deps, hasPending: HasPending): Promise<Rec
   const bucket = Math.floor(now.getTime() / STUCK_MS);
   const out: ReconcileResult = { contentRequeued: 0, publicationsRequeued: 0, analyticsRequeued: 0, publishingParked: 0 };
 
-  for (const c of await findStuck(db, Object.keys(NEXT_STAGE) as ContentStatus[], STUCK_MS)) {
+  for (const c of await findStuck(db, Object.keys(NEXT_STAGE) as ContentStatus[], STUCK_MS, now)) {
     const queue = NEXT_STAGE[c.status]!;
     const data: JobData = { contentId: c.id, correlationId: c.correlationId, regen: c.regenCount, ...(c.status === "qa_passed" ? { kind: "schedule" } : {}) };
     const id = jobIdFor(queue, data);

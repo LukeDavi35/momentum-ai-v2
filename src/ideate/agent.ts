@@ -90,7 +90,7 @@ export function selectWithRotation(cands: Candidate[], n: number, recentCounts: 
   return picked;
 }
 
-function proposalPrompt(cfg: AppConfig, clusters: Cluster[], n: number): { system: string; prompt: string; input: unknown } {
+function proposalPrompt(cfg: AppConfig, clusters: Cluster[], n: number, winners: string[] = []): { system: string; prompt: string; input: unknown } {
   const templates = Object.entries(cfg.pillars.templates).map(([k, v]) => `- ${k}: ${v.description} (fits: ${v.pillars.join(", ")})`).join("\n");
   const list = clusters
     .map((c) => {
@@ -98,12 +98,13 @@ function proposalPrompt(cfg: AppConfig, clusters: Cluster[], n: number): { syste
       return `${c.id} | pillar=${c.pillar} | factual_sources=${c.citable.length} | velocity=${c.velocity.toFixed(2)}\n${lines.join("\n")}`;
     })
     .join("\n\n");
+  const winnersBlock = winners.length ? `\nOur own recent top performers (what our audience responded to - take inspiration from the angle/format, never repeat the topic):\n${winners.map((w) => `- ${w}`).join("\n")}\n` : "";
   const system = `${BRAND_VOICE}\n\nYou are the ideation editor. Choose the strongest short-video ideas from current stories. Respond with ONLY JSON.`;
-  const prompt = `Templates:\n${templates}\n\nCurrent story clusters:\n${list}\n\nPropose up to ${Math.max(n * 3, 6)} ideas as JSON:\n{"ideas":[{"clusterId":"c1","template":"news_flash","topic":"short working title","angle":"one sentence on the angle","hookStyle":"question|stat|contrast|promise|story|news","templateFit":0-10}]}\nRules: each idea must use a clusterId above. Templates other than training_tip/quick_explainer need a cluster with factual_sources >= 1 ("signal-only" items are topic hints, never facts). You may add up to 2 evergreen training_tip/quick_explainer ideas with clusterId "evergreen:fitness" or "evergreen:running" when the news is thin. Prefer fresh, verifiable, high-velocity stories; do not propose near-duplicates of each other.`;
+  const prompt = `Templates:\n${templates}\n${winnersBlock}\nCurrent story clusters:\n${list}\n\nPropose up to ${Math.max(n * 3, 6)} ideas as JSON:\n{"ideas":[{"clusterId":"c1","template":"news_flash","topic":"short working title","angle":"one sentence on the angle","hookStyle":"question|stat|contrast|promise|story|news","templateFit":0-10}]}\nRules: each idea must use a clusterId above. Templates other than training_tip/quick_explainer need a cluster with factual_sources >= 1 ("signal-only" items are topic hints, never facts). You may add up to 2 evergreen training_tip/quick_explainer ideas with clusterId "evergreen:fitness" or "evergreen:running" when the news is thin. Prefer fresh, verifiable, high-velocity stories; do not propose near-duplicates of each other.`;
   return {
     system,
     prompt,
-    input: { n, clusters: clusters.map((c) => ({ id: c.id, pillar: c.pillar, headline: c.headline, citable: c.citable.length, velocity: c.velocity })) },
+    input: { n, winners, clusters: clusters.map((c) => ({ id: c.id, pillar: c.pillar, headline: c.headline, citable: c.citable.length, velocity: c.velocity })) },
   };
 }
 
@@ -127,16 +128,21 @@ export async function runIdeation(deps: Deps, data: JobData): Promise<IdeationRe
   const want = Math.min(cfg.schedule.ideate.keepTopN, room);
 
   const weightsV = await getCurrentWeights(db);
-  const items = await listRecentItems(db, 48, now);
+  // our own best recent posts (ingested by the 'internal' source) guide the LLM toward what works
+  const winnerRows = await db.query<{ title: string; summary: string }>(
+    `SELECT title, summary FROM source_items WHERE kind = 'internal' AND fetched_at > $1 ORDER BY COALESCE((metrics->>'perf')::float8, 0) DESC LIMIT 5`,
+    [new Date(now.getTime() - 14 * 86400_000).toISOString()],
+  );
+  const winners = winnerRows.rows.map((r) => r.title);
+  const items = (await listRecentItems(db, 48, now)).filter((i) => i.kind !== "internal");
   if (items.length === 0) return { created: [], considered: 0, skippedReason: "no_source_items" };
 
   const clusters = clusterItems(items, now)
-    .filter((c) => c.citable.length > 0 || c.items.some((i) => i.kind !== "internal"))
     .sort((a, b) => b.velocity - a.velocity)
     .slice(0, cfg.schedule.ideate.candidatesPerCycle + 3);
   if (clusters.length === 0) return { created: [], considered: 0, skippedReason: "no_clusters" };
 
-  const { system, prompt, input } = proposalPrompt(cfg, clusters, want);
+  const { system, prompt, input } = proposalPrompt(cfg, clusters, want, winners);
   const proposal = await llm.json({
     task: "ideate.propose",
     role: "writer",

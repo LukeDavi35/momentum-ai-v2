@@ -122,6 +122,10 @@ async function handleFailure(deps: Deps, content: Content, doc: QaDoc): Promise<
   const regen = content.regenCount;
   const feedback = [...doc.failures.map((f) => `[${f.kind}] ${f.reason}`), ...doc.reviewerFeedback.map((f) => `[reviewer] ${f}`)].join("\n");
   const technicalOnly = doc.failures.every((f) => f.kind === "technical");
+  // Failures caused by how the VIDEO was made can be fixed by re-rendering with the paid voiceover untouched;
+  // anything about the audio itself or its timing means the voiceover has to be redone.
+  const renderSide = new Set(["loudness", "true_peak", "black_frames", "no_black_start", "resolution", "video_codec", "fps", "file_size", "audio_present"]);
+  const renderOnly = technicalOnly && doc.failures.every((f) => renderSide.has(f.reason.split(":")[0]!));
 
   if (regen >= cfg.qa.maxRegenerations) {
     await transition(db, content.id, "qa_failed", "held", { error: `QA failed after ${regen + 1} attempts`, failed_stage: "qa", qa_feedback: feedback }, { stage: "qa", detail: { reason: "regeneration budget exhausted" } });
@@ -130,8 +134,14 @@ async function handleFailure(deps: Deps, content: Content, doc: QaDoc): Promise<
     return "held";
   }
 
+  if (renderOnly) {
+    await transition(db, content.id, "qa_failed", "voiced", { regen_count: regen + 1, render: null, qa_feedback: null }, { stage: "qa", detail: { retry: "render", regen: regen + 1 } });
+    await deps.enqueue("render", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
+    log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA render-side failure; re-rendering with a different audio strategy (voiceover kept)");
+    return "rerendering";
+  }
   if (technicalOnly) {
-    // the script is fine — only the audio/video came out wrong, so redo voice + render, keep the script
+    // the script is fine — the voiceover itself or its timing is wrong, so redo voice + render, keep the script
     await transition(db, content.id, "qa_failed", "scripted", { regen_count: regen + 1, voice: null, render: null, qa_feedback: null }, { stage: "qa", detail: { retry: "voice+render", regen: regen + 1 } });
     await deps.enqueue("voice", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
     log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA technical failure; re-voicing and re-rendering");

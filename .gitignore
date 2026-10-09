@@ -9,3 +9,4 @@ dashboard/dist/
 dashboard/node_modules/
 *.log
 .DS_Store
+reports/

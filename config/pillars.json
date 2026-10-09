@@ -1,0 +1,15 @@
+{
+  "pillars": {
+    "running":         { "weight": 0.30, "subreddits": ["running"] },
+    "fitness":         { "weight": 0.25, "subreddits": ["fitness"] },
+    "track_and_field": { "weight": 0.25, "subreddits": ["trackandfield"] },
+    "sports_news":     { "weight": 0.20, "subreddits": [] }
+  },
+  "templates": {
+    "news_flash":      { "pillars": ["sports_news", "track_and_field", "running"], "description": "Headline + 3 key points from a fresh news item" },
+    "stat_spotlight":  { "pillars": ["track_and_field", "running", "sports_news"], "description": "One striking number (time, distance, record) with context" },
+    "race_recap":      { "pillars": ["running", "track_and_field", "sports_news"], "description": "Result summary: winner, key moment, what it means" },
+    "training_tip":    { "pillars": ["fitness", "running"], "description": "3 numbered general-interest tips; never individual medical advice" },
+    "quick_explainer": { "pillars": ["fitness", "running", "track_and_field", "sports_news"], "description": "Explain one concept or rule in plain language" }
+  }
+}

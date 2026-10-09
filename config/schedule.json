@@ -1,0 +1,14 @@
+{
+  "timezone": "Europe/London",
+  "platforms": {
+    "tiktok":    { "enabled": true, "postsPerDay": 3, "peakTimes": ["07:30", "12:30", "19:00"], "jitterMinutes": 20 },
+    "instagram": { "enabled": true, "postsPerDay": 3, "peakTimes": ["08:00", "12:00", "18:30"], "jitterMinutes": 20 },
+    "youtube":   { "enabled": true, "postsPerDay": 3, "peakTimes": ["09:00", "13:00", "17:30"], "jitterMinutes": 20 }
+  },
+  "ingest":  { "rssEveryMinutes": 30, "trendsEveryMinutes": 60, "redditEveryMinutes": 60, "internalEveryMinutes": 360 },
+  "ideate":  { "everyMinutes": 120, "candidatesPerCycle": 12, "keepTopN": 2 },
+  "plan":    { "dailyAt": "00:05", "inventoryTargetPieces": 4 },
+  "monitor": { "everyMinutes": 5 },
+  "analytics": { "checkpoints": ["1h", "24h", "7d"] },
+  "learning": { "weeklyCron": "0 6 * * 1" }
+}

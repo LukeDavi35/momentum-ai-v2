@@ -1,0 +1,11 @@
+{
+  "currency": "USD",
+  "providers": {
+    "anthropic":  { "daily": 3,  "monthly": 60 },
+    "elevenlabs": { "daily": 2,  "monthly": 40 },
+    "openai":     { "daily": 1,  "monthly": 15 },
+    "render":     { "daily": 1,  "monthly": 15 }
+  },
+  "queueBacklogAlert": 50,
+  "maxPostsPerDay": 9
+}

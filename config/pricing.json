@@ -1,0 +1,13 @@
+{
+  "_note": "Conservative estimates used ONLY for spend-cap accounting. Verify against current provider price pages before relying on exact figures.",
+  "llm": {
+    "claude-sonnet-5":           { "inPerM": 3,  "outPerM": 15 },
+    "claude-opus-5-5":           { "inPerM": 15, "outPerM": 75 },
+    "claude-haiku-4-5-20251001": { "inPerM": 1,  "outPerM": 5 },
+    "default":                   { "inPerM": 15, "outPerM": 75 }
+  },
+  "elevenlabsPerKChars": 0.30,
+  "openaiTtsPerKChars": 0.015,
+  "openaiEmbeddingPerMTokens": 0.02,
+  "renderPerMinute": 0.02
+}

@@ -1,0 +1,18 @@
+{
+  "minScore": 7,
+  "maxRegenerations": 2,
+  "consecutiveFailureAlert": 3,
+  "technical": {
+    "minDurationS": 12,
+    "maxDurationS": 60,
+    "width": 1080,
+    "height": 1920,
+    "maxFileSizeMB": 100,
+    "targetLufs": -14,
+    "lufsTolerance": 3,
+    "maxTruePeakDb": -1,
+    "maxBlackSeconds": 0.5,
+    "maxHookWords": 16,
+    "captionSyncToleranceS": 0.25
+  }
+}

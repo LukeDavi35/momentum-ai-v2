@@ -1,0 +1,11 @@
+{
+  "rss": [
+    { "id": "bbc-athletics", "url": "https://feeds.bbci.co.uk/sport/athletics/rss.xml", "pillar": "track_and_field", "kind": "news" },
+    { "id": "bbc-sport",     "url": "https://feeds.bbci.co.uk/sport/rss.xml",           "pillar": "sports_news",     "kind": "news" },
+    { "id": "guardian-athletics", "url": "https://www.theguardian.com/sport/athletics/rss", "pillar": "track_and_field", "kind": "news" },
+    { "id": "guardian-sport", "url": "https://www.theguardian.com/uk/sport/rss",         "pillar": "sports_news",     "kind": "news" },
+    { "id": "espn-top",      "url": "https://www.espn.com/espn/rss/news",               "pillar": "sports_news",     "kind": "news" }
+  ],
+  "trends": { "url": "https://trends.google.com/trending/rss?geo=GB", "keywords": ["run", "marathon", "athlet", "olymp", "sprint", "fitness", "workout", "gym", "training", "race", "world record", "track", "football", "tennis", "cycling", "swim"] },
+  "reddit": { "userAgent": "momentum-ai-v2/2.0 (by /u/REPLACE_ME)", "limit": 25 }
+}

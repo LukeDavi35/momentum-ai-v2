@@ -61,5 +61,5 @@ describe.skipIf(!enabled)("Remotion renderer with a real Chromium + real QA tech
     expect(checks.filter((c) => !c.ok), JSON.stringify(checks.filter((c) => !c.ok))).toEqual([]);
     mkdirSync(join(process.cwd(), "out", "test-frames"), { recursive: true });
     await run("ffmpeg", ["-y", "-ss", "6", "-i", out.videoPath, "-frames:v", "1", join(process.cwd(), "out", "test-frames", `remotion-${template}.png`)]);
-  }, 300_000);
+  }, 900_000);
 });

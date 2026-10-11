@@ -1,3 +1,4 @@
+import pg from "pg";
 import { loadConfig, loadEnv, type AppConfig } from "../src/config/index.js";
 import { openPglite, openPostgres, type Db } from "../src/db/db.js";
 import { createLogger, type Logger } from "../src/logger.js";
@@ -98,9 +99,11 @@ export async function makeDeps(opts: {
 /** Real Postgres, one private schema per test file/process so parallel files never see each other's rows. */
 async function openIsolatedPostgres(url: string): Promise<Db> {
   const schema = `t_${process.pid}_${Math.random().toString(36).slice(2, 8)}`;
-  const admin = await openPostgres(url);
-  await admin.exec(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
-  await admin.close();
+  // a bare connection: openPostgres() would also run migrations in `public`, and parallel test files would race on that
+  const admin = new pg.Client({ connectionString: url });
+  await admin.connect();
+  await admin.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+  await admin.end();
   const u = new URL(url);
   u.searchParams.set("options", `-c search_path=${schema}`);
   return openPostgres(u.toString());

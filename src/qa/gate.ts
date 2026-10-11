@@ -5,10 +5,11 @@ import { buildPlatformMetadata, type PlatformMetadata } from "../publish/metadat
 import type { Deps, JobData } from "../queue/types.js";
 import type { CaptionCue } from "../render/captions.js";
 import type { ScriptDoc } from "../script/types.js";
-import { wordCount } from "../script/types.js";
+import { narrationOf, wordCount } from "../script/types.js";
 import type { VoiceDoc } from "../voice/agent.js";
 import { auditNarration, verifyClaims, type ClaimVerdict } from "./factcheck.js";
 import { checkPolicy, type PolicyViolation } from "./policy.js";
+import { describeHits, findSensitive } from "./sensitivity.js";
 import { belowThreshold, reviewScript, SCORE_KEYS, type Review } from "./reviewer.js";
 import { runTechnicalChecks, type Check } from "./technical.js";
 
@@ -63,6 +64,10 @@ export async function runQa(deps: Deps, data: JobData): Promise<QaOutcome> {
   for (const p of enabled) metadata[p] = buildPlatformMetadata(p, content, script, sources);
   const policy = checkPolicy(script, metadata, enabled);
   for (const v of policy.violations) failures.push({ kind: "policy", reason: `${v.rule} in ${v.where}: ${v.excerpt}` });
+
+  // 2b. brand safety: sensitive stories are held for a human, not regenerated
+  const sensitive = findSensitive(content.topic, script.title, narrationOf(script), ...sources.flatMap((x) => [x.title, x.summary]));
+  if (sensitive.length > 0) failures.push({ kind: "policy", reason: `sensitive_topic: ${describeHits(sensitive)} - needs a human decision` });
 
   // 3. technical
   const hookWords = wordCount(script.beats[0]?.text ?? "");
@@ -127,9 +132,10 @@ async function handleFailure(deps: Deps, content: Content, doc: QaDoc): Promise<
   const renderSide = new Set(["loudness", "true_peak", "black_frames", "no_black_start", "resolution", "video_codec", "fps", "file_size", "audio_present"]);
   const renderOnly = technicalOnly && doc.failures.every((f) => renderSide.has(f.reason.split(":")[0]!));
 
-  if (regen >= cfg.qa.maxRegenerations) {
-    await transition(db, content.id, "qa_failed", "held", { error: `QA failed after ${regen + 1} attempts`, failed_stage: "qa", qa_feedback: feedback }, { stage: "qa", detail: { reason: "regeneration budget exhausted" } });
-    await deps.alerter.send({ key: `held:${content.id}`, severity: "warning", title: "Content HELD after repeated QA failures (will not publish)", body: `${content.topic}\n${feedback}`.slice(0, 1500) });
+  const sensitive = doc.failures.some((f) => f.reason.startsWith("sensitive_topic"));
+  if (regen >= cfg.qa.maxRegenerations || sensitive) {
+    await transition(db, content.id, "qa_failed", "held", { error: sensitive ? "Held: sensitive topic (needs a human decision)" : `QA failed after ${regen + 1} attempts`, failed_stage: "qa", qa_feedback: feedback }, { stage: "qa", detail: { reason: sensitive ? "sensitive topic" : "regeneration budget exhausted" } });
+    await deps.alerter.send({ key: `held:${content.id}`, severity: "warning", title: sensitive ? "Content HELD: sensitive topic (will not publish)" : "Content HELD after repeated QA failures (will not publish)", body: `${content.topic}\n${feedback}`.slice(0, 1500) });
     log.warn({ contentId: content.id, correlationId: content.correlationId, failures: doc.failures.length }, "QA failed; content held");
     return "held";
   }

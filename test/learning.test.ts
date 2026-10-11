@@ -7,7 +7,7 @@ import { createContent, getContent, transition } from "../src/db/content.js";
 import { defaultWeights, getCurrentWeights, listWeightVersions, rollbackWeights } from "../src/ideate/weights.js";
 import { runWeeklyLearning } from "../src/learning/agent.js";
 import { groupMean, performanceScore, scoreRows, shrink, topPerformingItems, type PerfRow } from "../src/learning/performance.js";
-import { renderWeeklyReport } from "../src/learning/report.js";
+import { renderDigest, renderWeeklyReport } from "../src/learning/report.js";
 import { computeNewWeights, pearson } from "../src/learning/update.js";
 import type { Publisher } from "../src/publish/types.js";
 import { makeDeps } from "./helpers.js";
@@ -203,6 +203,29 @@ describe("runWeeklyLearning", () => {
     expect(await topPerformingItems(ctx.db, "Europe/London", false)).toEqual([]);
     const withDry = await topPerformingItems(ctx.db, "Europe/London", true);
     expect(withDry.length + 0).toBeGreaterThanOrEqual(0);
+  });
+
+  it("sends the owner a short weekly digest (info normally, warning when something is held)", async () => {
+    const ctx = await publishedContent({ dry: false });
+    await seed(ctx, 12);
+    await runWeeklyLearning(ctx.deps, { reportDir: mkdtempSync(join(tmpdir(), "rep-")) });
+    const a = (await ctx.db.query(`SELECT severity, title, body FROM alerts_log WHERE key = 'weekly_report'`)).rows[0];
+    expect(a).toMatchObject({ severity: "info", title: "Momentum weekly report" });
+    expect(a.body).toMatch(/created .* published .* held/);
+    expect(a.body).toContain("Nothing needs you.");
+    await ctx.db.query(`UPDATE content SET status = 'held' WHERE id = (SELECT id FROM content LIMIT 1)`);
+    await runWeeklyLearning(ctx.deps, { reportDir: mkdtempSync(join(tmpdir(), "rep-")) });
+    const w = (await ctx.db.query(`SELECT severity, body FROM alerts_log WHERE key = 'weekly_report' AND suppressed = false ORDER BY id DESC LIMIT 1`)).rows[0];
+    expect(w.severity).toBe("warning");
+    expect(w.body).toMatch(/1 item\(s\) held for review/);
+  });
+
+  it("the digest is compact and flags synthetic data", () => {
+    const base = { periodStart: NOW, periodEnd: NOW, rows: [], changes: [], persisted: false, dryRun: true, syntheticData: true, counts: { created: 4, published: 3, held: 0, failed: 0, qaPassRate: 0.75 }, spend: [] };
+    const d = renderDigest(base);
+    expect(d).toContain("(DRY RUN — synthetic analytics)");
+    expect(d).toContain("QA pass rate 75%");
+    expect(d.split("\n").length).toBeLessThanOrEqual(5);
   });
 
   it("the report renders cleanly with no data at all", () => {

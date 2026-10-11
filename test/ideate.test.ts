@@ -198,6 +198,18 @@ describe("runIdeation", () => {
     expect(prompt.split("Current story clusters:")[1]).not.toContain("Why 5k pacing matters"); // not treated as a story
   });
 
+  it("never builds content from a sensitive story (death, abuse allegation, legal case), but still uses the rest", async () => {
+    const { deps, db, provider } = await makeDeps({ reply });
+    await storeItems(db, deps.embedder, [
+      ...items(),
+      { source: "bbc", kind: "news", pillar: "sports_news", title: "Footballer dies after collapsing during training session", summary: "Tributes pour in.", url: "https://x/9", publishedAt: hoursAgo(1) },
+    ], NOW);
+    await runIdeation(deps, { correlationId: CID });
+    const prompt = provider.calls.find((c) => c.task === "ideate.propose")!.prompt;
+    expect(prompt).not.toMatch(/dies after collapsing/);
+    expect(prompt).toContain("Kipyegon"); // ordinary stories are unaffected
+  });
+
   it("skips quietly when there are no source items", async () => {
     const { deps } = await makeDeps({ reply });
     expect((await runIdeation(deps, { correlationId: CID })).skippedReason).toBe("no_source_items");

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { getCurrentWeights, saveWeights } from "../ideate/weights.js";
 import type { Deps } from "../queue/types.js";
 import { loadPerfRows, scoreRows } from "./performance.js";
-import { renderWeeklyReport } from "./report.js";
+import { renderDigest, renderWeeklyReport, type ReportInput } from "./report.js";
 import { computeNewWeights } from "./update.js";
 
 export interface LearningResult {
@@ -50,7 +50,7 @@ export async function runWeeklyLearning(deps: Deps, opts: { reportDir?: string; 
   const q = await db.query<{ passed: number; total: number }>(`SELECT COUNT(*) FILTER (WHERE passed)::int AS passed, COUNT(*)::int AS total FROM qa_results WHERE created_at >= $1`, [weekAgo]);
   const qaTotal = Number(q.rows[0]?.total ?? 0);
 
-  const md = renderWeeklyReport({
+  const reportInput: ReportInput = {
     periodStart: new Date(now.getTime() - 7 * 86400_000),
     periodEnd: now,
     rows,
@@ -62,12 +62,15 @@ export async function runWeeklyLearning(deps: Deps, opts: { reportDir?: string; 
     syntheticData: rows.some((r) => r.synthetic),
     counts: { ...c.rows[0]!, qaPassRate: qaTotal ? Number(q.rows[0]!.passed) / qaTotal : null },
     spend: await deps.spend.summary(),
-  });
+  };
+  const md = renderWeeklyReport(reportInput);
   const dir = opts.reportDir ?? cfg.env.REPORT_DIR;
   mkdirSync(dir, { recursive: true });
   const reportPath = join(dir, "WEEKLY_REPORT.md");
   writeFileSync(reportPath, md);
   writeFileSync(join(dir, `weekly-${now.toISOString().slice(0, 10)}.md`), md); // history of every report
+  // the owner reads this on their phone once a week; the full report stays on the dashboard
+  await deps.alerter.send({ key: "weekly_report", severity: reportInput.counts.held > 0 ? "warning" : "info", title: "Momentum weekly report", body: renderDigest(reportInput), throttleMs: 0 });
   log.info({ rows: update.rows, changes: update.changes.length, persisted: persist, weightVersion, reportPath }, "weekly learning done");
   return { rows: update.rows, changes: update.changes.length, persisted: persist, weightVersion, reportPath, skipped: update.skipped };
 }

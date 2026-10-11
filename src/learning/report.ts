@@ -74,3 +74,16 @@ export function renderWeeklyReport(i: ReportInput): string {
   out.push(table(["Provider", "Today", "Daily cap", "Month", "Monthly cap"], i.spend.map((s) => [s.provider, `$${f(s.dailySpent)}`, `$${f(s.dailyCap)}`, `$${f(s.monthlySpent)}`, `$${f(s.monthlyCap)}`])));
   return out.join("\n");
 }
+
+/** The phone-sized version of the weekly report: what happened, what (if anything) needs the owner. */
+export function renderDigest(i: ReportInput): string {
+  const best = [...i.rows].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
+  const lines = [
+    `${i.counts.created} created · ${i.counts.published} published · ${i.counts.held} held · ${i.counts.failed} failed` + (i.counts.qaPassRate === null ? "" : ` · QA pass rate ${Math.round(i.counts.qaPassRate * 100)}%`),
+    best ? `Best post: "${best.topic.slice(0, 70)}" on ${best.platform} (${best.views.toLocaleString()} views)` : "No measured posts yet.",
+    i.skipped ? `Learning: no change (${i.skipped})` : i.persisted ? `Learning: ${i.changes.length} weight changes saved as v${i.weightVersion}` : `Learning: ${i.changes.length} changes proposed, not saved${i.dryRun ? " (dry run)" : ""}`,
+    i.counts.held > 0 ? `⚠ ${i.counts.held} item(s) held for review — see the dashboard's Held tab.` : "Nothing needs you.",
+  ];
+  if (i.syntheticData) lines.unshift("(DRY RUN — synthetic analytics)");
+  return lines.join("\n");
+}

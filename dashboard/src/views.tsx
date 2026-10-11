@@ -189,9 +189,12 @@ export function SpendView(): ReactNode {
 
 export function LearningView(): ReactNode {
   const { data, error } = useData<WeightVersion[]>("/api/weights");
+  const report = useData<{ markdown: string | null; updatedAt: string | null }>("/api/report", 60_000);
   if (!data) return <Loading error={error} />;
   return (
     <>
+      <h3 className="sub">Latest weekly report {report.data?.updatedAt ? <span className="muted">· written {ago(report.data.updatedAt)}</span> : null}</h3>
+      <div className="card">{report.data?.markdown ? <pre>{report.data.markdown}</pre> : <div className="muted">No weekly report yet — the first one is written on the next Monday run.</div>}</div>
       <p className="muted">The weekly job adjusts what to make and when to post. Every version is kept; roll back with <code>npm run rollback -- &lt;version&gt;</code>.</p>
       {data.length === 0 ? <div className="card">No weights saved yet (defaults apply).</div> : (
         <div className="card"><table><thead><tr><th>Version</th><th>Kind</th><th>When</th><th>Why</th></tr></thead><tbody>

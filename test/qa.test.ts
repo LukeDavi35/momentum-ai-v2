@@ -299,6 +299,18 @@ describe("runQa gate", () => {
     expect(row.qaFeedback).toContain("[reviewer] Open with the record time.");
   });
 
+  it("HOLDS a sensitive story immediately: no regeneration, no publish, warning alert", async () => {
+    const { deps, db, id, enqueued } = await renderedContent();
+    await db.query(`UPDATE content SET topic = 'Tributes paid after sprinter dies aged 24' WHERE id = $1`, [id]);
+    expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("held");
+    const row = (await getContent(db, id))!;
+    expect(row).toMatchObject({ status: "held", regenCount: 0 });
+    expect(row.error).toMatch(/sensitive topic/);
+    expect((row.qa as any).failures.some((f: any) => f.reason.startsWith("sensitive_topic: death"))).toBe(true);
+    expect(enqueued.filter((e) => e.queue === "publish" || e.queue === "script")).toEqual([]);
+    expect((await db.query(`SELECT title FROM alerts_log WHERE key = $1`, [`held:${id}`])).rows[0].title).toMatch(/sensitive topic/);
+  });
+
   it("alerts after 3 consecutive QA failures", async () => {
     const { deps, db, id } = await renderedContent({ runner: fakeRunner({ loudI: -30 }) });
     await db.query(`INSERT INTO qa_results (content_id, attempt, passed) SELECT $1, 0, false FROM generate_series(1,2)`, [id]);

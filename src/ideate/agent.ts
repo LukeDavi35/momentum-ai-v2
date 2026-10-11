@@ -5,6 +5,7 @@ import { createContent } from "../db/content.js";
 import { listRecentItems } from "../ingest/store.js";
 import { CITABLE_KINDS } from "../ingest/types.js";
 import { BRAND_VOICE } from "../prompts.js";
+import { findSensitive } from "../qa/sensitivity.js";
 import type { Deps, JobData } from "../queue/types.js";
 import { clusterItems, thresholds, type Cluster } from "./cluster.js";
 import { similarity, type Embedding } from "./embeddings.js";
@@ -137,7 +138,11 @@ export async function runIdeation(deps: Deps, data: JobData): Promise<IdeationRe
   const items = (await listRecentItems(db, 48, now)).filter((i) => i.kind !== "internal");
   if (items.length === 0) return { created: [], considered: 0, skippedReason: "no_source_items" };
 
-  const clusters = clusterItems(items, now)
+  const all = clusterItems(items, now);
+  // brand safety: never build content from deaths, serious injuries, abuse allegations or legal cases (see qa/sensitivity.ts)
+  const safe = all.filter((c) => findSensitive(...c.items.flatMap((i) => [i.title, i.summary])).length === 0);
+  if (safe.length < all.length) log.info({ skipped: all.length - safe.length }, "ideation skipped sensitive story clusters");
+  const clusters = safe
     .sort((a, b) => b.velocity - a.velocity)
     .slice(0, cfg.schedule.ideate.candidatesPerCycle + 3);
   if (clusters.length === 0) return { created: [], considered: 0, skippedReason: "no_clusters" };

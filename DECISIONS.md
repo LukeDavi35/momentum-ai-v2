@@ -46,6 +46,8 @@ One line each: decision — rationale. Newest at the bottom of each section.
 - **No "official results feed" is configured by default** — World Athletics and most federations publish no free public API/RSS for results. Results arrive via the news feeds (BBC/Guardian/ESPN), and any federation or results feed you do have can be added to `config/sources.json` with `"kind": "results"` (it is then citable like news). Listed as an open item in SETUP_CHECKLIST.
 - **Our own top-performing posts are ingested as `internal` items and shown to the ideation LLM as "what worked", but are never clustered as stories or cited** — they steer format/angle, not facts.
 
+- **Sensitive stories (death, serious injury/illness, abuse allegations, legal cases) are skipped at ideation and, if one still reaches QA, HELD immediately for a human — never regenerated** — an upbeat automated brand must not make hype videos about tragedies; rewriting the same story doesn't make it appropriate. Deliberately over-inclusive (flags ~2% of real headlines in testing, including one figurative "assault"): a false positive costs one skipped story, a false negative is a PR incident.
+
 ## Publishing
 - **Ambiguous publish outcomes (timeout after the irreversible call) are parked as failed + critical alert, never retried** — a retry could double-post; a human checks the account.
 - **Late posts (> 6 h after their slot, e.g. after a pause) are rescheduled, not posted stale** — stale "breaking news" is worse than a gap.
@@ -62,6 +64,7 @@ One line each: decision — rationale. Newest at the bottom of each section.
 - **Weights are append-only; rollback appends a copy of an old version** — the full history of what was live stays auditable.
 
 ## Ops
+- **The weekly learning job pushes a short digest to the alert channel (warning level if anything is held); the full report is on the dashboard's Learning tab** — the owner's weekly check should arrive on their phone, not require remembering to open a dashboard.
 - **`DRY_RUN=false` refuses to boot unless LLM, TTS, token key, admin token, https URL, signing secret, Postgres and an alert channel are all present** — an unattended system must not half-run.
 - **Dashboard is a single static React app served by the API, one bearer token, per-IP rate limit + lockout** — smallest thing that is safe to expose.
 - **No Remotion in the default image** — see below.

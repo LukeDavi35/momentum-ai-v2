@@ -137,6 +137,19 @@ describe("content, held, overview", () => {
   });
 });
 
+describe("weekly report endpoint", () => {
+  it("returns null before the first report and the markdown after", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rep-"));
+    const b = await boot({ REPORT_DIR: dir });
+    expect(await (await b.get("/api/report")).json()).toEqual({ markdown: null, updatedAt: null });
+    writeFileSync(join(dir, "WEEKLY_REPORT.md"), "# Weekly report\n\nAll fine.");
+    const r = await (await b.get("/api/report")).json();
+    expect(r.markdown).toContain("All fine.");
+    expect(r.updatedAt).toBeTruthy();
+    expect((await b.get("/api/report", null)).status).toBe(401);
+  });
+});
+
 describe("dashboard static serving", () => {
   it("never caches index.html (a cached copy pins users to a stale bundle) but caches hashed assets forever, with SPA fallback", async () => {
     const dir = mkdtempSync(join(tmpdir(), "dash-"));

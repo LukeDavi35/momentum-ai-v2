@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { PLATFORMS, type Platform } from "../config/index.js";
@@ -293,6 +293,18 @@ export function createApp(ctx: ApiContext): express.Express {
     "/weights",
     asyncRoute(async (_req, res) => {
       res.json((await listWeightVersions(db, 20)).map((v) => ({ version: v.version, kind: v.kind, reason: v.reason, createdAt: v.createdAt, weights: v.weights })));
+    }),
+  );
+
+  api.get(
+    "/report",
+    asyncRoute(async (_req, res) => {
+      const path = join(cfg.env.REPORT_DIR, "WEEKLY_REPORT.md");
+      if (!existsSync(path)) {
+        res.json({ markdown: null, updatedAt: null });
+        return;
+      }
+      res.json({ markdown: readFileSync(path, "utf8"), updatedAt: statSync(path).mtime });
     }),
   );
 

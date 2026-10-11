@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # One image, several roles: `runtime` (api / worker) and `tools` (tests, dry-run, ops scripts).
 
-FROM node:24-bookworm-slim AS base
+FROM node:25-bookworm-slim AS base
 # ffmpeg(+libass) renders and QA-analyses video; espeak-ng is the DRY-RUN-ONLY dev voice; fonts-dejavu is the caption font.
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-dejavu-core ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*

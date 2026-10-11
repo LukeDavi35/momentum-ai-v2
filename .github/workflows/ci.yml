@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      remotion:
+        description: "Also run the slow Remotion render tests (builds the Docker image with Chromium)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck + tests (real Postgres, Redis, ffmpeg)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: momentum
+          POSTGRES_PASSWORD: momentum
+          POSTGRES_DB: momentum
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U momentum -d momentum" --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://momentum:momentum@localhost:5432/momentum
+      REDIS_TEST_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+
+      # The real-media tests render videos with ffmpeg (libass) and synthesise speech with espeak-ng.
+      - name: Install ffmpeg, espeak-ng, fonts
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-dejavu-core
+
+      - run: npm ci
+      - run: npm --prefix dashboard ci
+
+      - name: Typecheck (backend + Remotion compositions)
+        run: npm run typecheck
+      - name: Typecheck + build dashboard
+        run: npm --prefix dashboard run build
+
+      - name: Tests
+        run: npx vitest run
+
+      - name: Upload rendered test frames (for eyeballing failures)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-frames
+          path: out/test-frames
+          if-no-files-found: ignore
+
+  docker-image:
+    name: Docker image builds (runtime + tools)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+      - name: Compose file is valid
+        run: docker compose config --quiet
+
+  remotion:
+    name: Remotion render tests (manual, slow)
+    if: github.event_name == 'workflow_dispatch' && inputs.remotion
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tools image with Chromium
+        run: WITH_CHROMIUM=true docker compose --profile tools build tools
+      - name: Start Postgres + Redis
+        run: docker compose up -d --wait postgres redis
+      - name: Run the Remotion tests
+        run: docker compose --profile tools run --rm -e CHROMIUM_PATH=/usr/bin/chromium tools npx vitest run test/remotion.int.test.ts --testTimeout=900000

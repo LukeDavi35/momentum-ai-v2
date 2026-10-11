@@ -1,5 +1,7 @@
 # Momentum AI v2
 
+[![CI](https://github.com/LukeDavi35/momentum-ai-v2/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LukeDavi35/momentum-ai-v2/actions/workflows/ci.yml)
+
 An autonomous sports & fitness short-video system: it **researches → writes → voices → renders → quality-checks → publishes → learns**,
 with a read-only dashboard and a kill switch. Day to day it needs nobody.
 

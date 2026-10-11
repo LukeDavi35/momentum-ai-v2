@@ -15,13 +15,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Runners are pinned (not ubuntu-latest) because the media tests depend on the runner's ffmpeg/libass version;
+# bump deliberately and watch the render tests.
 permissions:
   contents: read
 
 jobs:
   test:
     name: Typecheck + tests (real Postgres, Redis, ffmpeg)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:
@@ -42,9 +44,9 @@ jobs:
       TEST_DATABASE_URL: postgres://momentum:momentum@localhost:5432/momentum
       REDIS_TEST_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -69,7 +71,7 @@ jobs:
 
       - name: Upload rendered test frames (for eyeballing failures)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-frames
           path: out/test-frames
@@ -77,13 +79,13 @@ jobs:
 
   docker-image:
     name: Docker image builds (runtime + tools)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Build runtime image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: runtime
@@ -96,10 +98,10 @@ jobs:
   remotion:
     name: Remotion render tests (manual, slow)
     if: github.event_name == 'workflow_dispatch' && inputs.remotion
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build tools image with Chromium
         run: WITH_CHROMIUM=true docker compose --profile tools build tools
       - name: Start Postgres + Redis

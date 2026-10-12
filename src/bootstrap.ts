@@ -47,7 +47,16 @@ export interface App {
   close(): Promise<void>;
 }
 
-export async function bootstrap(opts: { cfg?: AppConfig } = {}): Promise<App> {
+/** Resolves true if Redis answers within the timeout. ioredis retries forever by design, so an unreachable Redis would otherwise hang silently. */
+export async function redisReachable(redis: Redis, timeoutMs = 8000): Promise<boolean> {
+  try {
+    return (await Promise.race([redis.ping(), new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), timeoutMs))])) === "PONG";
+  } catch {
+    return false;
+  }
+}
+
+export async function bootstrap(opts: { cfg?: AppConfig; /** false = carry on without Redis (used by the smoke test, which reports it instead). */ requireRedis?: boolean } = {}): Promise<App> {
   const cfg = opts.cfg ?? loadConfig();
   const log = createLogger(cfg.env.LOG_LEVEL);
   const problems = liveReadinessProblems(cfg);
@@ -56,7 +65,19 @@ export async function bootstrap(opts: { cfg?: AppConfig } = {}): Promise<App> {
   const db = await openDb({ databaseUrl: cfg.env.DATABASE_URL, dataDir: cfg.env.DATA_DIR });
   await ensureInitialWeights(db);
   const redis = createRedis(cfg.env.REDIS_URL);
-  const qs = createQueues(redis);
+  redis.on("error", () => undefined); // surfaced below / by callers; an unhandled 'error' event would crash the process
+  if (!(await redisReachable(redis)) && opts.requireRedis !== false) {
+    redis.disconnect();
+    await db.close();
+    throw new Error(`Cannot reach Redis at ${cfg.env.REDIS_URL.replace(/\/\/[^@]*@/, "//***@")} (waited 8s). Is it running? In Docker use: docker compose up -d redis`);
+  }
+  let lastQueueErr = 0;
+  const qs = createQueues(redis, (queue, err) => {
+    if (Date.now() - lastQueueErr > 30_000) {
+      lastQueueErr = Date.now();
+      log.error({ queue, err: err.message || String((err as any).code ?? err) }, "queue connection error (suppressing repeats for 30s)");
+    }
+  });
 
   const alerter = new Alerter(db, cfg.env, log);
   const spend = new SpendTracker(db, cfg.limits, cfg.pricing);
@@ -90,8 +111,9 @@ export async function bootstrap(opts: { cfg?: AppConfig } = {}): Promise<App> {
     deps,
     tokens,
     close: async () => {
-      await qs.close();
-      await redis.quit().catch(() => undefined);
+      await qs.close().catch(() => undefined);
+      await Promise.race([redis.quit().catch(() => undefined), new Promise((r) => setTimeout(r, 2000))]);
+      redis.disconnect();
       await db.close();
     },
   };

@@ -63,6 +63,17 @@ describe("live smoke test (read-only)", () => {
     expect(calls.filter((c) => c.method !== "GET").map((c) => c.url)).toEqual([expect.stringContaining("creator_info")]); // the lone POST is a read-only query
   });
 
+  it("reports a Redis that does not answer as a FAILURE (never a pass)", async () => {
+    const { deps, db, f, tokens } = await setup();
+    const down = await runSmoke({ cfg: deps.cfg, db, tokens, fetchImpl: f, redisPing: async () => false });
+    expect(down.find((c) => c.name === "redis")).toMatchObject({ status: "fail" });
+    expect(down.find((c) => c.name === "redis")!.detail).toMatch(/no answer/);
+    const throwing = await runSmoke({ cfg: deps.cfg, db, tokens, fetchImpl: f, redisPing: async () => { throw new Error("ECONNREFUSED"); } });
+    expect(throwing.find((c) => c.name === "redis")).toMatchObject({ status: "fail", detail: "ECONNREFUSED" });
+    const up = await runSmoke({ cfg: deps.cfg, db, tokens, fetchImpl: f, redisPing: async () => true });
+    expect(up.find((c) => c.name === "redis")).toMatchObject({ status: "ok", detail: "PONG" });
+  });
+
   it("reports a bad key as a failure with the HTTP reason, and a failed alert delivery", async () => {
     const { deps, db, f, tokens } = await setup({ ANTHROPIC_API_KEY: "bad", DISCORD_WEBHOOK_URL: "https://discord.test/h" }, [[/anthropic/, () => new Response("invalid x-api-key", { status: 401 })], [/discord/, () => new Response("no", { status: 500 })]]);
     deps.alerter = new (await import("../src/safety/alerts.js")).Alerter(db, deps.cfg.env, deps.log, f);

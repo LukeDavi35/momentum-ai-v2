@@ -43,7 +43,10 @@ export async function runSmoke(opts: { cfg: AppConfig; db: Db; alerter?: Alerter
   const out: SmokeCheck[] = [];
 
   out.push(await guarded("postgres", async () => (await db.query("SELECT 1 AS ok")).rows[0]?.ok === 1 ? `reachable (${db.kind})` : "unexpected result"));
-  out.push(opts.redisPing ? await guarded("redis", async () => ((await opts.redisPing!()) ? "PONG" : "no PONG")) : skipped("redis", "no connection supplied"));
+  out.push(opts.redisPing ? await guarded("redis", async () => {
+        if (!(await opts.redisPing!())) throw new Error("no answer - is Redis running and is REDIS_URL right?");
+        return "PONG";
+      }) : skipped("redis", "no connection supplied"));
 
   const problems = liveReadinessProblems({ ...cfg, env: { ...e, DRY_RUN: false } });
   out.push(problems.length ? { name: "live-readiness", status: "fail", detail: `missing: ${problems.join("; ")}` } : { name: "live-readiness", status: "ok", detail: "every prerequisite for DRY_RUN=false is configured" });

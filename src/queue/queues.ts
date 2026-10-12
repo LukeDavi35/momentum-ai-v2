@@ -19,10 +19,12 @@ export interface QueueSet {
   close(): Promise<void>;
 }
 
-export function createQueues(connection: Redis): QueueSet {
+/** BullMQ queues re-emit connection errors; with no listener Node prints the raw AggregateError on every retry. */
+export function createQueues(connection: Redis, onError: (queue: string, err: Error) => void = () => undefined): QueueSet {
   const queues = Object.fromEntries(QUEUE_NAMES.map((n) => [n, new Queue(n, { connection, defaultJobOptions: DEFAULT_JOB_OPTS })])) as Record<QueueName, Queue>;
   const maintenance = new Queue(MAINTENANCE_QUEUE, { connection, defaultJobOptions: { ...DEFAULT_JOB_OPTS, attempts: 3 } });
   const dlq = new Queue(DEAD_LETTER_QUEUE, { connection, defaultJobOptions: { removeOnComplete: false, removeOnFail: false } });
+  for (const [name, q] of [...Object.entries(queues), [MAINTENANCE_QUEUE, maintenance], [DEAD_LETTER_QUEUE, dlq]] as Array<[string, Queue]>) q.on("error", (e) => onError(name, e));
   return {
     queues,
     maintenance,

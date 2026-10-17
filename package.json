@@ -38,7 +38,7 @@
     "pino": "^10.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "remotion": "4.0.534",
+    "remotion": "4.0.535",
     "zod": "^4.6.5"
   },
   "devDependencies": {

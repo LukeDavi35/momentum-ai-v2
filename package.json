@@ -24,26 +24,26 @@
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.1",
-    "@electric-sql/pglite": "^0.5.8",
-    "@remotion/bundler": "4.0.534",
-    "@remotion/renderer": "4.0.534",
-    "bullmq": "^6.3.12",
-    "dotenv": "^18.0.6",
-    "express": "^5.2.1",
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@electric-sql/pglite": "^0.5.9",
+    "@remotion/bundler": "4.0.535",
+    "@remotion/renderer": "4.0.535",
+    "bullmq": "^6.3.15",
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0",
     "fast-xml-parser": "^5.11.2",
     "ioredis": "^6.0.0",
-    "nodemailer": "^10.0.16",
+    "nodemailer": "^10.1.1",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "remotion": "4.0.535",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
@@ -51,6 +51,6 @@
     "pino-pretty": "^13.2.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   }
 }

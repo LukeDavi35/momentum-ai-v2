@@ -11,9 +11,18 @@ updates:
     directory: /dashboard
     schedule: { interval: weekly }
     open-pull-requests-limit: 3
+    groups:
+      # @vitejs/plugin-react majors track Vite majors (6.x peers on vite ^8): proposed separately, neither installs.
+      vite: { patterns: ["vite", "@vitejs/*"] }
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # Node majors move deliberately, LTS to LTS, together with CI's setup-node version (ci.yml). Dependabot
+      # would otherwise propose odd-numbered releases (25, 27...), which never get LTS and leave CI and the
+      # image on different Node versions.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

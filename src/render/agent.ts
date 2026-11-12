@@ -10,7 +10,9 @@ export type Renderer = (input: { deps: Deps; template: import("../config/index.j
 const ffmpegRenderer: Renderer = ({ deps, template, script, voice, dir, attempt }) => renderWithFfmpeg({ cfg: deps.cfg, template, script, voice, dir, runner: deps.runner ?? run, attempt });
 
 /** Chooses the configured renderer. Remotion is optional and loaded lazily so the worker doesn't need its (heavy) deps otherwise. */
-export async function pickRenderer(deps: Deps): Promise<Renderer> {
+export async function pickRenderer(deps: Deps, script?: ScriptDoc): Promise<Renderer> {
+  // the compilation montage (licensed clips under titles) only exists in the FFmpeg renderer
+  if (script?.compilation) return ffmpegRenderer;
   if (deps.cfg.env.RENDERER === "remotion") {
     const mod = await import("./remotionRenderer.js");
     return mod.remotionRenderer;
@@ -37,7 +39,7 @@ export async function runRender(deps: Deps, data: JobData): Promise<RenderOutcom
 
   const dir = workDir(cfg, content.id, content.regenCount);
   const started = Date.now();
-  const render = await (await pickRenderer(deps))({ deps, template: content.template, script, voice, dir, attempt: content.regenCount });
+  const render = await (await pickRenderer(deps, script))({ deps, template: content.template, script, voice, dir, attempt: content.regenCount });
   const elapsedS = (Date.now() - started) / 1000;
 
   await spend.record({ provider: "render", category: render.renderer, usd: projected, units: render.durationS, contentId: content.id, correlationId: content.correlationId });

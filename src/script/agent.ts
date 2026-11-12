@@ -6,6 +6,8 @@ import { CITABLE_KINDS, type SourceItem } from "../ingest/types.js";
 import { BRAND_VOICE, HOOK_RULES } from "../prompts.js";
 import { applyVerification, verifyClaims } from "../qa/factcheck.js";
 import type { Deps, JobData } from "../queue/types.js";
+import { planCompilation } from "../highlights/segments.js";
+import type { HighlightsIdea } from "../highlights/types.js";
 import { PLATFORM_NOTES, TEMPLATE_SPECS } from "./templates.js";
 import { estimateDurationS, narrationOf, scriptWriterSchema, type Claim, type ScriptDoc } from "./types.js";
 
@@ -24,7 +26,14 @@ export interface ScriptPromptInput {
   feedback: string | null;
   lengthTarget: string;
   evergreen: boolean;
+  /** daily_highlights only: the stories to tell, in order, each with the aliases of its own sources. */
+  stories?: Array<{ n: number; headline: string; aliases: string[] }>;
 }
+
+const highlightsOf = (content: Content): HighlightsIdea | null => ((content.idea as any)?.highlights as HighlightsIdea | undefined) ?? null;
+
+/** ~22 words per story plus hook and call to action, at the TTS pace. */
+export const highlightsLengthTarget = (stories: number): string => `about ${Math.round((14 + 10 + stories * 22) / 2.6)} seconds (~${14 + 10 + stories * 22} words: a ~12-word hook, ~22 words per story, a ~10-word sign-off)`;
 
 function buildPrompt(content: Content, sources: SourceItem[], lengthTarget: string, feedback: string | null) {
   const evergreen = EVERGREEN_TEMPLATES.includes(content.template);
@@ -42,6 +51,12 @@ function buildPrompt(content: Content, sources: SourceItem[], lengthTarget: stri
     ? aliased.map((s) => `${s.alias} [${s.source} | ${s.citable ? "FACTUAL SOURCE" : "topic signal only - never cite as a fact"}]: ${s.title}${s.summary ? ` — ${s.summary}` : ""}${s.body && s.body !== s.summary ? `\n   ${s.body}` : ""}`).join("\n")
     : "(no sources - this is an evergreen piece: use only general-interest statements)";
   const spec = TEMPLATE_SPECS[content.template];
+  const hl = content.template === "daily_highlights" ? highlightsOf(content) : null;
+  const idToAlias = new Map(aliased.map((s) => [s.id, s.alias]));
+  const stories = hl?.stories.map((st, i) => ({ n: i + 1, headline: st.headline, aliases: st.sourceItemIds.map((id) => idToAlias.get(id)).filter((a): a is string => !!a) }));
+  const storiesBlock = stories
+    ? `\nSTORIES (tell exactly these ${stories.length}, in this order, one beat each):\n${stories.map((st) => `Story ${st.n} [sources: ${st.aliases.join(", ")}]: ${st.headline}`).join("\n")}\n`
+    : "";
 
   const system = `${BRAND_VOICE}\n\nYou write short-form (vertical video) scripts. ${HOOK_RULES}\nRespond with ONLY JSON.`;
   const prompt = `Write a script for the "${content.template}" template.
@@ -53,7 +68,7 @@ Target length: ${lengthTarget}. Hard maximum ${MAX_DURATION_S} seconds spoken (~
 
 Template structure: ${spec.structure}
 Visual block: ${spec.visual}
-
+${storiesBlock}
 SOURCES (the ONLY place facts may come from):
 ${srcBlock}
 
@@ -67,8 +82,8 @@ ${PLATFORM_NOTES}
 ${feedback ? `\nA previous version FAILED review. Fix these problems:\n${feedback}\n` : ""}
 JSON shape:
 {"title":"","hookStyle":"question|stat|contrast|promise|story|news","beats":[{"id":"b1","text":"voiceover words","onScreen":"short on-screen text","claimIds":["c1"]}],"claims":[{"id":"c1","text":"","source":"S1","kind":"fact","quote":null}],"visual":{"headline":"","stat":null,"statLabel":null,"items":[]},"variants":{"tiktok":{"caption":"","hashtags":[]},"instagram":{"caption":"","hashtags":[]},"youtube":{"title":"","description":"","hashtags":[]}}}
-Use between ${MIN_BEATS} and 9 beats.`;
-  const input: ScriptPromptInput = { template: content.template, pillar: content.pillar, topic: content.topic, angle: (content.idea as any).angle ?? "", hookStyle: content.hookStyle, sources: aliased, feedback, lengthTarget, evergreen };
+Use between ${MIN_BEATS} and ${stories ? stories.length + 2 : 9} beats.`;
+  const input: ScriptPromptInput = { template: content.template, pillar: content.pillar, topic: content.topic, angle: (content.idea as any).angle ?? "", hookStyle: content.hookStyle, sources: aliased, feedback, lengthTarget, evergreen, ...(stories ? { stories } : {}) };
   return { system, prompt, input, aliased };
 }
 
@@ -96,7 +111,9 @@ export async function runScript(deps: Deps, data: JobData): Promise<ScriptOutcom
   );
   const weights = (await getCurrentWeights(db)).weights;
   const bucket = [...LENGTH_BUCKETS].sort((a, b) => weights.lengths[b] - weights.lengths[a])[0]!;
-  const { system, prompt, input, aliased } = buildPrompt(content, sources, LENGTH_TARGET[bucket], content.qaFeedback);
+  const highlights = content.template === "daily_highlights" ? highlightsOf(content) : null;
+  const target = highlights ? highlightsLengthTarget(highlights.stories.length) : LENGTH_TARGET[bucket];
+  const { system, prompt, input, aliased } = buildPrompt(content, sources, target, content.qaFeedback);
 
   const out = await llm.json({
     task: "script.write",
@@ -130,6 +147,8 @@ export async function runScript(deps: Deps, data: JobData): Promise<ScriptOutcom
   doc = applyVerification(doc, verdicts, sources);
   doc = trimToDuration(doc);
   doc.estimatedDurationS = estimateDurationS(doc);
+  // a compilation also records which beats tell which story (decided from what each beat cites) and the clip behind each
+  if (highlights) doc.compilation = planCompilation(doc, highlights.stories, highlights.date);
 
   if (doc.beats.length < MIN_BEATS) {
     const reasons = doc.removed.map((r) => `- beat ${r.beatId}: ${r.reason}`).join("\n") || "- too few usable beats";

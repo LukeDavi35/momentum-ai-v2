@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Compilation } from "../highlights/types.js";
 import { HOOK_STYLES } from "../ideate/weights.js";
 
 export const claimSchema = z.object({
@@ -52,6 +53,8 @@ export interface ScriptDoc extends Omit<ScriptWriterOutput, "claims"> {
   /** Beat ids removed by the fact-check pre-filter, with the reason — shown on the dashboard. */
   removed: Array<{ beatId: string; reason: string }>;
   generator: "live" | "stub";
+  /** daily_highlights only: which beats belong to which story, and the licensed clip behind each. */
+  compilation?: Compilation;
 }
 
 export const WORDS_PER_SECOND = 2.6; // ~155 wpm, typical TTS pace

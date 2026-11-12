@@ -61,6 +61,8 @@ Dashboard → Status → Connected accounts → **Connect**. (Alerts tell you wh
 | **TikTok/YouTube posts are private** | app not yet audited (see SETUP_CHECKLIST) | Expected until the audit passes; the dashboard shows a warning on the publication. |
 | **Worker unhealthy / restart loop** | Redis unreachable, bad config | `docker compose logs worker`; the heartbeat file only updates while Redis answers, so Docker restarts a wedged worker automatically. |
 | **Items stuck in a stage > 20 min** | process died between a DB commit and the next enqueue | Self-heals: the reconciler (every 10 min) re-enqueues them. Check *Alerts* if it persists. |
+| **No highlights video today** | fewer than 2 usable stories in the last 24 h (the job logs `not_enough_stories`), today's was already built, or it was held by QA | `docker compose logs worker \| grep highlights`. One per local day; if today's failed, `npm run highlights` rebuilds it. A held one lists its reasons (often a licence/credit or the < 2 stories rule) and can be retried with `npm run release`. |
+| **Highlights have no footage** | no `PEXELS_API_KEY`, Commons had nothing for that sport, or clips were cooling down (7 days) | Expected on a fresh install: it renders on generated backgrounds. Add a Pexels key or your own library (SETUP_CHECKLIST §5c). Every clip used is in the `footage_clips` table with its licence. |
 | **Disk filling up** | rendered media | `housekeeping` deletes media of finished pieces > 14 days daily. Held items are kept for review. `docker system df`. |
 
 ## 6. Redis / Postgres

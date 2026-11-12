@@ -10,5 +10,6 @@
   "plan":    { "dailyAt": "00:05", "inventoryTargetPieces": 4 },
   "monitor": { "everyMinutes": 5 },
   "analytics": { "checkpoints": ["1h", "24h", "7d"] },
-  "learning": { "weeklyCron": "0 6 * * 1" }
+  "learning": { "weeklyCron": "0 6 * * 1" },
+  "highlights": { "enabled": true, "dailyAt": "16:30", "maxStories": 4, "lookbackHours": 24, "footage": { "enabled": true, "providers": ["library", "pexels", "commons"], "minClipSeconds": 3, "reuseCooldownDays": 7 } }
 }

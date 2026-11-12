@@ -8,6 +8,7 @@ import type { ScriptDoc } from "../script/types.js";
 import { narrationOf, wordCount } from "../script/types.js";
 import type { VoiceDoc } from "../voice/agent.js";
 import { auditNarration, verifyClaims, type ClaimVerdict } from "./factcheck.js";
+import { checkCompilation } from "./compilation.js";
 import { checkPolicy, type PolicyViolation } from "./policy.js";
 import { describeHits, findSensitive } from "./sensitivity.js";
 import { belowThreshold, reviewScript, SCORE_KEYS, type Review } from "./reviewer.js";
@@ -63,6 +64,7 @@ export async function runQa(deps: Deps, data: JobData): Promise<QaOutcome> {
   const metadata: Partial<Record<Platform, PlatformMetadata>> = {};
   for (const p of enabled) metadata[p] = buildPlatformMetadata(p, content, script, sources);
   const policy = checkPolicy(script, metadata, enabled);
+  if (content.template === "daily_highlights") policy.violations.push(...checkCompilation(script, metadata, enabled));
   for (const v of policy.violations) failures.push({ kind: "policy", reason: `${v.rule} in ${v.where}: ${v.excerpt}` });
 
   // 2b. brand safety: sensitive stories are held for a human, not regenerated

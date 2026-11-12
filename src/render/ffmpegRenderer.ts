@@ -5,6 +5,7 @@ import { probe, run, type Runner } from "../media/exec.js";
 import type { ScriptDoc } from "../script/types.js";
 import type { VoiceDoc } from "../voice/agent.js";
 import { buildCaptionCues, captionsToAss, type CaptionCue } from "./captions.js";
+import { planSpans, renderMontage } from "./montage.js";
 import { buildCoverAss, buildVisualAss, THEMES } from "./visuals.js";
 
 export const TAIL_S = 0.7;
@@ -57,7 +58,7 @@ async function hasGradients(cfg: AppConfig, runner: Runner): Promise<boolean> {
   return gradientsSupported;
 }
 
-async function backgroundSource(cfg: AppConfig, runner: Runner, template: Template, durationS: number): Promise<string[]> {
+export async function backgroundSource(cfg: AppConfig, runner: Runner, template: Template, durationS: number): Promise<string[]> {
   const t = THEMES[template];
   const src = (await hasGradients(cfg, runner))
     ? `gradients=s=1080x1920:r=${FPS}:d=${durationS.toFixed(2)}:c0=${t.c0}:c1=${t.c1}:x0=0:y0=0:x1=300:y1=1920:nb_colors=2:speed=0.015`
@@ -77,7 +78,7 @@ export interface FfmpegRenderInput {
 }
 
 /** What the visuals come from: a generated gradient + ASS visual track (FFmpeg renderer) or a pre-rendered video (Remotion). */
-export type VisualBase = { kind: "gradient"; visualAssPath: string } | { kind: "video"; path: string };
+export type VisualBase = { kind: "gradient"; visualAssPath: string } | { kind: "video"; path: string; /** optional ASS overlay burned over the video (the compilation montage uses it for titles and credits) */ visualAssPath?: string };
 
 export interface AssembleInput extends FfmpegRenderInput {
   base: VisualBase;
@@ -156,7 +157,7 @@ export async function assemble(input: AssembleInput): Promise<RenderResult> {
     `${plan.finalLimiter},apad=pad_dur=2,atrim=0:${D.toFixed(2)}`;
 
   const videoPath = join(dir, "video.mp4");
-  const visualOverlay = base.kind === "gradient" ? `ass=${filterPath(base.visualAssPath)},` : "";
+  const visualOverlay = base.visualAssPath ? `ass=${filterPath(base.visualAssPath)},` : "";
   const bgArgs = base.kind === "gradient" ? await backgroundSource(cfg, runner, template, D) : ["-i", base.path];
   const filter =
     `[0:v]scale=1080:1920,${visualOverlay}ass=${filterPath(captionsPath)}[base];` +
@@ -206,6 +207,14 @@ export async function assemble(input: AssembleInput): Promise<RenderResult> {
 export async function renderWithFfmpeg(input: FfmpegRenderInput): Promise<RenderResult> {
   const D = totalDuration(input.voice);
   const visualAssPath = join(input.dir, "visual.ass");
+  const compilation = input.script.compilation;
+  const spans = compilation ? planSpans(compilation, input.voice.beats, D) : [];
+  if (compilation && spans.length > 0) {
+    // daily highlights: a montage of licensed clips (or template gradients) under the same titles/captions/loudness pipeline
+    writeFileSync(visualAssPath, buildVisualAss(input.template, input.script, input.voice.beats, D, spans));
+    const path = await renderMontage({ cfg: input.cfg, template: input.template, spans, dir: input.dir, runner: input.runner ?? run });
+    return assemble({ ...input, base: { kind: "video", path, visualAssPath }, renderer: "ffmpeg" });
+  }
   writeFileSync(visualAssPath, buildVisualAss(input.template, input.script, input.voice.beats, D));
   return assemble({ ...input, base: { kind: "gradient", visualAssPath }, renderer: "ffmpeg" });
 }

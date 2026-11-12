@@ -15,6 +15,7 @@
     "dev:api": "tsx src/main.ts",
     "dev:worker": "tsx src/worker.ts",
     "dryrun": "tsx scripts/dryrun.ts",
+    "highlights": "tsx scripts/highlights.ts",
     "oauth": "tsx scripts/oauth.ts",
     "rollback": "tsx scripts/rollback-weights.ts",
     "test:redis": "vitest run test/queue",

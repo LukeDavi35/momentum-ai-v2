@@ -10,6 +10,7 @@
     "stat_spotlight":  { "pillars": ["track_and_field", "running", "sports_news"], "description": "One striking number (time, distance, record) with context" },
     "race_recap":      { "pillars": ["running", "track_and_field", "sports_news"], "description": "Result summary: winner, key moment, what it means" },
     "training_tip":    { "pillars": ["fitness", "running"], "description": "3 numbered general-interest tips; never individual medical advice" },
-    "quick_explainer": { "pillars": ["fitness", "running", "track_and_field", "sports_news"], "description": "Explain one concept or rule in plain language" }
+    "quick_explainer": { "pillars": ["fitness", "running", "track_and_field", "sports_news"], "description": "Explain one concept or rule in plain language" },
+    "daily_highlights": { "pillars": ["sports_news", "track_and_field", "running", "fitness"], "description": "The day's top stories as one compilation (built by the daily highlights job, not by ideation)" }
   }
 }

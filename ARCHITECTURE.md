@@ -108,6 +108,9 @@ Every transition is `UPDATE … WHERE id = $1 AND status = $from` inside a trans
 3. **Technical** (on the real file) — duration, 1080×1920, H.264/AAC, size, integrated loudness and true peak, black frames, speech present, captions on disk match speech and timing, hook ≤ N words and starts promptly.
 4. **Independent LLM reviewer** — separate prompt; scores accuracy / brand voice / hook / clarity / policy safety 1–10; all must be ≥ threshold (`config/qa.json`). Skipped (to save spend) when a deterministic check already failed.
 
+### 1.3b Daily highlights compilation
+A separate scheduled job on the `ideate` queue (`kind: "highlights"`, `config/schedule.json → highlights`) feeds the *same* pipeline: `src/highlights/agent.ts` clusters the last 24 h of news, drops sensitive clusters, picks the top stories (`select.ts`, one sport each first), asks `src/footage/` for a licensed clip per story (library → Pexels → Wikimedia Commons; licence allow-list in `licenses.ts`), and creates one `daily_highlights` content row. The script stage writes one beat per story and `planCompilation` records which beats belong to which story from their citations. The FFmpeg renderer builds a montage per story span (`src/render/montage.ts`) and then runs the shared `assemble()` (loudness, captions, bar, cover). QA adds `checkCompilation` (≥ 2 stories, accepted licences, every clip credited and the footage labelled illustrative in each post).
+
 ### 1.4 Layout
 ```
 src/config      zod-validated env + JSON configs          src/publish     publishers, tokens, OAuth, slot planner, metadata
@@ -117,6 +120,7 @@ src/queue       queues, worker wrapper, scheduler,         src/api         Expre
                 maintenance, handlers                     src/safety      kill switch, spend, posting caps, alerts
 src/llm         Anthropic provider, labelled stub, client  src/media       ffmpeg/ffprobe runner
 src/ingest      RSS/Atom, Trends, Reddit, store            dashboard/      React (Vite) control room
+src/footage     licensed-clip providers, licence rules     src/highlights  daily story selection, segment planning
 src/ideate      clustering, scoring, weights, embeddings   scripts/        dryrun, release, rollback
 src/script      writer, templates, types                   test/           244 tests (see §2)
 src/voice       ElevenLabs, OpenAI, dev voice, alignment   config/         schedule, pillars, qa, limits, pricing, sources

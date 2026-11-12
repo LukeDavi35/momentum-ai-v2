@@ -44,6 +44,16 @@ Skip this and the pipeline simply runs without Reddit signals.
 ## 5b. Official results feeds (optional, recommended)
 No free public results API exists for most federations, so results currently arrive through the news feeds. If you have access to a results feed (World Athletics, a marathon organiser, a league), add it to `config/sources.json` → `rss` with `"kind": "results"`; it is then treated as a citable source, which makes result-based pieces more reliable.
 
+## 5c. Footage for the daily highlights compilation (optional, 5 min)
+The compilation works with no setup (generated backgrounds, plus Wikimedia Commons clips when it can find a suitable one). To get better footage:
+1. **Pexels (free):** [pexels.com/api](https://www.pexels.com/api/) → `PEXELS_API_KEY` in `.env`. Pexels-licensed videos are free for commercial use and editing; the video credits the author anyway.
+2. **Your own library (the only route for real match footage):** put files in `data/footage/` and list them in `data/footage/library.json`:
+   ```json
+   { "clips": [ { "file": "serve.mp4", "title": "Club final serve", "tags": ["tennis", "serve"], "license": "owned", "author": "Your name" } ] }
+   ```
+   `license` is `owned` / `licensed` for footage you shot or hold a licence for, or an accepted label (`CC0`, `CC BY 4.0`). The system checks the label is on the accepted list, **not that it is true** — only list footage you are entitled to use. Tags are matched against the sport of each story (tennis, soccer, marathon, sprinter, american football, …).
+3. Turn it off or change the time/length in `config/schedule.json → highlights` (`enabled`, `dailyAt`, `maxStories`, `footage.providers`).
+
 ## 6. YouTube ⏱ audit takes days to weeks
 1. [Google Cloud Console](https://console.cloud.google.com) → new project → enable **YouTube Data API v3** and **YouTube Analytics API**.
 2. OAuth consent screen → *External* → add your Google account as a test user → **then click "Publish app" (In production).**

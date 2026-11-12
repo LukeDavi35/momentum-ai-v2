@@ -181,4 +181,29 @@ CREATE TABLE dead_letters (
 );
 `,
   },
+  {
+    version: 2,
+    sql: `
+CREATE TABLE footage_clips (
+  id              BIGSERIAL PRIMARY KEY,
+  provider        TEXT NOT NULL,                 -- library | pexels | commons
+  external_id     TEXT NOT NULL,
+  title           TEXT NOT NULL DEFAULT '',
+  page_url        TEXT NOT NULL DEFAULT '',
+  license         TEXT NOT NULL,                 -- normalised id (cc0 | public_domain | cc_by | pexels | owned)
+  license_label   TEXT NOT NULL,                 -- as the provider states it
+  author          TEXT NOT NULL DEFAULT '',
+  local_path      TEXT,
+  duration_s      DOUBLE PRECISION,
+  width           INT,
+  height          INT,
+  use_count       INT NOT NULL DEFAULT 0,
+  last_used_at    TIMESTAMPTZ,
+  last_content_id UUID,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, external_id)
+);
+CREATE INDEX footage_clips_used_idx ON footage_clips (last_used_at DESC);
+`,
+  },
 ];

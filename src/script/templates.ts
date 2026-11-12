@@ -32,6 +32,11 @@ export const TEMPLATE_SPECS: Record<Template, TemplateSpec> = {
       "Beat 1 = hook as a question the viewer wants answered. Then explain ONE concept in 3 simple beats (what it is, how it works, why it matters), using general-interest statements only (kind=general, NO numbers or names unless sourced). Short call-to-action.",
     visual: 'headline = the concept in <=6 words; items = 3 plain-language steps as <=6-word chips.',
   },
+  daily_highlights: {
+    structure:
+      "This is a COMPILATION of the day's top stories (listed in the STORIES block, in order). Beat 1 = hook that teases today's top stories (<=14 words, no numbers). Then EXACTLY one beat per story, in the order listed, each ~18-24 words, opening with the subject so the viewer knows which story it is, using ONLY that story's own sources. Final beat = short call to follow for tomorrow's highlights. Each story beat's claims must cite that story's sources.",
+    visual: 'headline = "Today\'s sports highlights"; items = [] (leave empty); stat = null. A story beat\'s onScreen = a <=40-character title for that story.',
+  },
 };
 
 export const PLATFORM_NOTES = `Platform variants (all required):

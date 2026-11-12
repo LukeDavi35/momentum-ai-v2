@@ -1,6 +1,7 @@
 import type { Platform } from "../config/index.js";
 import type { Content } from "../db/content.js";
 import type { SourceItem } from "../ingest/types.js";
+import { ILLUSTRATIVE_NOTE } from "../footage/query.js";
 import { CITABLE_KINDS } from "../ingest/types.js";
 import type { ScriptDoc } from "../script/types.js";
 
@@ -53,8 +54,17 @@ export function sourceCreditFor(script: ScriptDoc, sources: SourceItem[]): { cre
   return { credit: `Source: ${names.join(", ")}`, urls: [...new Set(cited.map((s) => s.url).filter((u): u is string => !!u))] };
 }
 
+/** Credit lines for the licensed footage in a compilation (each clip once), plus the note that it is illustrative. Empty when no footage was used. */
+export function footageCreditLines(script: Pick<ScriptDoc, "compilation">): string[] {
+  const credits = [...new Set((script.compilation?.segments ?? []).map((s) => s.footage?.credit).filter((c): c is string => !!c))];
+  return credits.length > 0 ? [...credits, ILLUSTRATIVE_NOTE] : [];
+}
+
 export function buildPlatformMetadata(platform: Platform, content: Pick<Content, "pillar" | "topic">, script: ScriptDoc, sources: SourceItem[]): PlatformMetadata {
-  const { credit, urls } = sourceCreditFor(script, sources);
+  const { credit: sourceLine, urls } = sourceCreditFor(script, sources);
+  const footage = footageCreditLines(script);
+  // the credit slot carries the news-source line and, for compilations, the footage credits
+  const credit = [sourceLine, ...footage].filter(Boolean).join("\n") || null;
   const v = script.variants;
   const nativeFlag = platform === "tiktok" ? "is_aigc" : platform === "youtube" ? "containsSyntheticMedia" : "none";
   const aiDisclosure = { applied: true, line: AI_DISCLOSURE_LINE, nativeFlag } as const;

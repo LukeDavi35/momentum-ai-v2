@@ -130,7 +130,7 @@ export async function monitor(deps: Deps, getCounts: GetCounts, resume: (queue: 
 // ------------------------------------------------------------------ housekeeping
 
 /** Deletes rendered media for pieces that are finished (measured/failed) and older than `days`. Held items are kept for review. */
-export async function housekeeping(deps: Deps, days = 14): Promise<{ removed: number }> {
+export async function housekeeping(deps: Deps, days = 14): Promise<{ removed: number; footageRemoved: number }> {
   const { db, cfg } = deps;
   const cutoff = new Date(deps.now().getTime() - days * 86400_000).toISOString();
   const res = await db.query<{ id: string }>(`SELECT id FROM content WHERE status IN ('measured','failed') AND status_changed_at < $1`, [cutoff]);
@@ -145,8 +145,22 @@ export async function housekeeping(deps: Deps, days = 14): Promise<{ removed: nu
       /* already gone */
     }
   }
-  void readdirSync;
-  return { removed };
+  // downloaded footage is only a cache (a clip isn't reused within its cooldown anyway): keep a month, then re-download if needed
+  let footageRemoved = 0;
+  const cacheDir = join(cfg.env.DATA_DIR, "footage-cache");
+  const footageCutoff = deps.now().getTime() - 30 * 86400_000;
+  try {
+    for (const f of readdirSync(cacheDir)) {
+      const p = join(cacheDir, f);
+      if (statSync(p).mtimeMs < footageCutoff) {
+        rmSync(p, { force: true });
+        footageRemoved++;
+      }
+    }
+  } catch {
+    /* no cache yet */
+  }
+  return { removed, footageRemoved };
 }
 
 // ------------------------------------------------------------------ dispatcher

@@ -29,6 +29,10 @@ export async function installSchedules(qs: QueueSet, cfg: AppConfig): Promise<st
   await add("ideate", "ideate-cycle", { every: mins(s.ideate.everyMinutes) }, "cycle");
   const [h, m] = s.plan.dailyAt.split(":").map(Number);
   await add("ideate", "daily-housekeeping", { pattern: `${m} ${h} * * *`, tz }, "housekeeping");
+  if (s.highlights.enabled) {
+    const [hh, hm] = s.highlights.dailyAt.split(":").map(Number);
+    await add("ideate", "daily-highlights", { pattern: `${hm} ${hh} * * *`, tz }, "highlights");
+  }
   await add(MAINTENANCE_QUEUE, "reconcile", { every: mins(10) }, "reconcile");
   await add(MAINTENANCE_QUEUE, "monitor", { every: mins(s.monitor.everyMinutes) }, "monitor");
   await add(MAINTENANCE_QUEUE, "refresh-tokens", { every: mins(30) }, "refresh-tokens");

@@ -104,7 +104,37 @@ const HASHTAGS: Record<string, string[]> = {
   sports_news: ["sports", "sportsnews", "breakingnews", "athletes"],
 };
 
+/** Compilation script: hook, one beat per story (its lead headline, cited to that story's first factual source), sign-off. */
+function stubHighlights(input: ScriptPromptInput) {
+  const bySource = new Map(input.sources.map((s) => [s.alias, s]));
+  const beats: any[] = [{ id: "b1", text: "Here are today's top sports stories.", onScreen: "Today's top stories", claimIds: [] }];
+  const claims: any[] = [];
+  for (const st of input.stories ?? []) {
+    const src = st.aliases.map((a) => bySource.get(a)).find((s) => s?.citable);
+    if (!src) continue;
+    const text = capWords(clean(src.title), 20);
+    const id = `c${claims.length + 1}`;
+    claims.push({ id, text, source: src.alias, kind: "fact" });
+    beats.push({ id: `b${beats.length + 1}`, text, onScreen: capChars(text, 40), claimIds: [id] });
+  }
+  beats.push({ id: `b${beats.length + 1}`, text: "Follow Momentum for tomorrow's highlights.", onScreen: "Follow for more", claimIds: [] });
+  const tags = HASHTAGS.sports_news!;
+  return {
+    title: "Today's sports highlights",
+    hookStyle: "news",
+    beats,
+    claims,
+    visual: { headline: "Today's sports highlights", stat: null, statLabel: null, items: [] },
+    variants: {
+      tiktok: { caption: "Today's top sports stories in one video", hashtags: tags.slice(0, 4) },
+      instagram: { caption: "Today's top sports stories in one video", hashtags: tags.slice(0, 5) },
+      youtube: { title: "Today's sports highlights", description: "The biggest sports stories of the day in one short video.", hashtags: tags.slice(0, 3) },
+    },
+  };
+}
+
 function stubScript(input: ScriptPromptInput) {
+  if (input.template === "daily_highlights" && input.stories?.length) return stubHighlights(input);
   const evergreen = input.evergreen;
   const citable = input.sources.filter((s) => s.citable);
   const beats: any[] = [];

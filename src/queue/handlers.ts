@@ -1,4 +1,5 @@
 import { runAnalytics } from "../analytics/agent.js";
+import { runHighlights } from "../highlights/agent.js";
 import { runIdeation } from "../ideate/agent.js";
 import { runIngest, type IngestSource } from "../ingest/index.js";
 import { topPerformingItems } from "../learning/performance.js";
@@ -34,7 +35,7 @@ export const HANDLERS: Record<QueueName, Handler> = {
       },
       (data.kind ?? "rss") as IngestSource,
     ),
-  ideate: (deps, data) => (data.kind === "housekeeping" ? housekeeping(deps) : runIdeation(deps as Deps, data)),
+  ideate: (deps, data) => (data.kind === "housekeeping" ? housekeeping(deps) : data.kind === "highlights" ? runHighlights(deps as Deps, data) : runIdeation(deps as Deps, data)),
   script: runScript,
   voice: runVoice,
   render: runRender,

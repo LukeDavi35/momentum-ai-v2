@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PILLARS, TEMPLATES, type AppConfig, type Pillar, type Template } from "../config/index.js";
+import { COMPILATION_TEMPLATES, PILLARS, TEMPLATES, type AppConfig, type Pillar, type Template } from "../config/index.js";
 import type { Content, IdeaScores } from "../db/content.js";
 import { createContent } from "../db/content.js";
 import { listRecentItems } from "../ingest/store.js";
@@ -92,7 +92,7 @@ export function selectWithRotation(cands: Candidate[], n: number, recentCounts: 
 }
 
 function proposalPrompt(cfg: AppConfig, clusters: Cluster[], n: number, winners: string[] = []): { system: string; prompt: string; input: unknown } {
-  const templates = Object.entries(cfg.pillars.templates).map(([k, v]) => `- ${k}: ${v.description} (fits: ${v.pillars.join(", ")})`).join("\n");
+  const templates = Object.entries(cfg.pillars.templates).filter(([k]) => !COMPILATION_TEMPLATES.includes(k as Template)).map(([k, v]) => `- ${k}: ${v.description} (fits: ${v.pillars.join(", ")})`).join("\n");
   const list = clusters
     .map((c) => {
       const lines = c.items.slice(0, 3).map((i) => `   • [${i.source}${CITABLE_KINDS.includes(i.kind) ? "" : ", signal-only"}] ${i.title}${i.summary ? ` — ${i.summary.slice(0, 160)}` : ""}`);
@@ -171,6 +171,7 @@ export async function runIdeation(deps: Deps, data: JobData): Promise<IdeationRe
       valid.push({ p, cluster: { id: p.clusterId, pillar, evergreen: true, velocity: 0.2, items: [], citable: [] } });
       continue;
     }
+    if (COMPILATION_TEMPLATES.includes(p.template)) continue; // built by the daily highlights job from several stories, never from one cluster
     const cluster = byId.get(p.clusterId);
     if (!cluster) continue;
     if (!EVERGREEN_TEMPLATES.includes(p.template) && cluster.citable.length === 0) continue; // factual templates need a citable source

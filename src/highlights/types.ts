@@ -14,7 +14,11 @@ export interface HighlightStory {
 }
 
 export interface HighlightsIdea {
-  /** Local calendar day this compilation is for, "YYYY-MM-DD" in the schedule timezone. One compilation per day. */
+  /** Which config/schedule.json -> compilations entry built this ("daily", "weekly", ...). */
+  profile: string;
+  /** On-screen headline / prompt wording for this run (profile.label at the time it was built). */
+  label: string;
+  /** Local calendar day this run is for, "YYYY-MM-DD" in the schedule timezone. One run per profile per day. */
   date: string;
   stories: HighlightStory[];
 }

@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMPILATION_TEMPLATES } from "../src/config/index.js";
 import { getContent } from "../src/db/content.js";
-import { runHighlights, localDay } from "../src/highlights/agent.js";
-import { selectStories } from "../src/highlights/select.js";
+import { candidateCount, editorPick, profileFootageLicenses, runHighlights, localDay } from "../src/highlights/agent.js";
+import { NOT_A_NEWS_STORY, selectStories, type PickedStory } from "../src/highlights/select.js";
 import { planCompilation } from "../src/highlights/segments.js";
 import type { HighlightStory } from "../src/highlights/types.js";
 import type { Cluster } from "../src/ideate/cluster.js";
@@ -56,12 +56,13 @@ const footageFetch: typeof fetch = (async (url: string) => {
   return new Response("video-bytes", { headers: { "content-type": "video/mp4" } });
 }) as unknown as typeof fetch;
 
-async function setup(opts: { items?: RawItem[]; pexels?: boolean; provider?: boolean } = {}) {
+async function setup(opts: { items?: RawItem[]; pexels?: boolean; provider?: boolean; reply?: (req: any) => unknown } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "hl-"));
   const ctx = await makeDeps({
     now: NOW,
     env: { DATA_DIR: dir, ...(opts.pexels === false ? {} : { PEXELS_API_KEY: "key" }) },
     fetchImpl: footageFetch,
+    ...(opts.reply ? { reply: opts.reply } : {}),
     ...(opts.provider === false ? {} : { provider: new StubProvider() }),
   });
   ctx.deps.runner = probeOk;
@@ -105,6 +106,87 @@ describe("selectStories", () => {
     const c = fakeCluster("c1", "Wimbledon one", 0.9, 4);
     (c as any).items = [{ id: "signal", kind: "reddit" }, ...c.citable];
     expect(selectStories([c], 1)[0]!.sourceItemIds).toEqual(["c1-i0", "c1-i1", "c1-i2"]);
+  });
+});
+
+describe("story selection quality", () => {
+  const withSources = (c: Cluster, n: number): Cluster => ((c as any).sources = Array.from({ length: n }, (_, i) => `outlet${i}`), c);
+
+  it("prefers stories covered by two or more outlets over single-source ones", () => {
+    const picked = selectStories([withSources(fakeCluster("solo", "Arsenal beat Chelsea", 0.95), 1), withSources(fakeCluster("pair", "Wimbledon final goes to five sets", 0.4), 2)], 2);
+    expect(picked.map((p) => p.clusterId)).toEqual(["pair", "solo"]);
+    expect(picked[0]).toMatchObject({ outlets: 2 });
+  });
+
+  it.each([
+    "Barnwell's NFL mailbag: your questions answered",
+    "Premier League predictions: who wins the title",
+    "Football Daily | Pochettino readies his outfit",
+    "NHL Tonight: an 11-game slate on Thursday",
+    "Power rankings: every team from best to worst",
+    "How to watch the Wimbledon final",
+    "NFL midseason awards: the top candidates",
+  ])("skips columns and previews: %s", (headline) => {
+    expect(NOT_A_NEWS_STORY.test(headline)).toBe(true);
+  });
+  it.each(["Crystal Palace sack Pierre Sage", "Kipyegon breaks 1500m world record in Paris", "Buccaneers beat Cowboys after a huge third quarter"])("keeps real news: %s", (headline) => {
+    expect(NOT_A_NEWS_STORY.test(headline)).toBe(false);
+  });
+
+  it("drops columns when there is real news, but falls back to them rather than to no video on a quiet day", () => {
+    const col = fakeCluster("col", "Football Daily | a column", 0.9);
+    const a = fakeCluster("a", "Arsenal beat Chelsea", 0.5);
+    const b = fakeCluster("b", "Wimbledon final goes to five sets", 0.4);
+    expect(selectStories([col, a, b], 3).map((p) => p.clusterId)).toEqual(["a", "b"]);
+    expect(selectStories([col, a], 3).map((p) => p.clusterId)).toEqual(["col", "a"]);
+  });
+});
+
+describe("editorPick (LLM editor over vetted candidates)", () => {
+  const cand = (n: number): PickedStory[] => Array.from({ length: n }, (_, i) => ({ clusterId: `c${i}`, headline: `Headline ${i}`, pillar: "sports_news" as const, sourceItemIds: [`s${i}`], query: "q", outlets: 1, summary: "" }));
+  const run = async (reply: (req: any) => unknown, n = 8, want = 4) => {
+    const ctx = await makeDeps({ now: NOW, reply });
+    return { ...ctx, out: await editorPick(ctx.deps, cand(n), want, "Today's sports highlights", "x") };
+  };
+
+  it("uses the editor's choice and order", async () => {
+    const { out, provider } = await run(() => ({ picks: [{ id: 5, why: "a" }, { id: 1, why: "b" }, { id: 7, why: "c" }] }));
+    expect(out.map((c) => c.clusterId)).toEqual(["c5", "c1", "c7"]);
+    expect(provider.calls[0]!.task).toBe("highlights.pick");
+    expect(provider.calls[0]!.prompt).toContain("0 | outlets=1 | sport=q | Headline 0");
+  });
+  it("ignores invented, repeated and out-of-range ids, and caps at the number wanted", async () => {
+    const { out } = await run(() => ({ picks: [{ id: 99 }, { id: 2 }, { id: 2 }, { id: -1 }, { id: 3 }, { id: 4 }, { id: 5 }, { id: 6 }] }));
+    expect(out.map((c) => c.clusterId)).toEqual(["c2", "c3", "c4", "c5"]);
+  });
+  it("falls back to the deterministic order when the editor keeps fewer than two stories", async () => {
+    expect((await run(() => ({ picks: [{ id: 3 }] }))).out.map((c) => c.clusterId)).toEqual(["c0", "c1", "c2", "c3"]);
+  });
+  it("falls back when the call fails or returns something that is not the schema", async () => {
+    expect((await run(() => { throw new Error("llm down"); })).out.map((c) => c.clusterId)).toEqual(["c0", "c1", "c2", "c3"]);
+    expect((await run(() => "not json at all")).out).toHaveLength(4);
+  });
+  it("does not call the LLM when there is nothing to choose between", async () => {
+    const { out, provider } = await run(() => ({ picks: [] }), 3, 4);
+    expect(out).toHaveLength(3);
+    expect(provider.calls).toHaveLength(0);
+  });
+});
+
+describe("runHighlights asks the editor when there are more candidates than slots", () => {
+  it("builds the video from the editor's picks", async () => {
+    const many: RawItem[] = [
+      ...DAY,
+      item("espn-top", "Lakers beat Celtics in overtime thriller", "The Lakers beat the Celtics in overtime in the NBA on Thursday night.", 7),
+      item("bbc-sport", "Mercedes win the Grand Prix after a late safety car", "Mercedes won the Formula 1 Grand Prix after a late safety car on Sunday.", 8),
+    ];
+    const ctx = await setup({ items: many, provider: false, reply: (req: any) => (req.task === "highlights.pick" ? { picks: req.input.candidates.slice().reverse().slice(0, 4).map((c: any) => ({ id: c.id, why: "x" })) } : {}) });
+    const r = await runHighlights(ctx.deps, { correlationId: "x" });
+    expect(ctx.provider.calls.filter((c) => c.task === "highlights.pick")).toHaveLength(1);
+    const row = (await getContent(ctx.db, r.created!))!;
+    const stories = (row.idea as any).highlights.stories as HighlightStory[];
+    const asked = (ctx.provider.calls.find((c) => c.task === "highlights.pick")!.input as any).candidates as Array<{ id: number; headline: string }>;
+    expect(stories.map((s) => s.headline)).toEqual(asked.slice().reverse().slice(0, 4).map((c) => c.headline));
   });
 });
 
@@ -216,7 +298,7 @@ describe("runHighlights", () => {
     expect(await runHighlights(one.deps, { correlationId: "x" })).toMatchObject({ skippedReason: "not_enough_stories" });
     expect(one.enqueued).toHaveLength(0);
     const off = await setup();
-    off.deps.cfg.schedule.highlights.enabled = false;
+    off.deps.cfg.schedule.compilations.daily!.enabled = false;
     expect(await runHighlights(off.deps, { correlationId: "x" })).toMatchObject({ skippedReason: "disabled" });
   });
 
@@ -235,6 +317,64 @@ describe("runHighlights", () => {
   it("uses the schedule timezone for 'today'", () => {
     expect(localDay(new Date("2026-11-12T23:30:00Z"), "Europe/London")).toBe("2026-11-12");
     expect(localDay(new Date("2026-06-12T23:30:00Z"), "Europe/London")).toBe("2026-06-13"); // BST
+  });
+});
+
+describe("compilation profiles are independent generators sharing the same code", () => {
+  it("builds a named profile other than the first, honouring its own window/count/label", async () => {
+    const six: RawItem[] = [
+      ...DAY,
+      item("espn-top", "Lakers beat Celtics in overtime thriller", "The Lakers beat the Celtics in overtime in the NBA on Thursday night.", 7, "sports_news"),
+      item("bbc-sport", "Mercedes win the Grand Prix after a late safety car", "Mercedes won the Formula 1 Grand Prix after a late safety car on Sunday.", 8, "sports_news"),
+    ];
+    const { deps, db } = await setup({ items: six });
+    deps.cfg.schedule.compilations.weekly!.lookbackHours = 24; // keep it inside this fixture's window for the test
+    const r = await runHighlights(deps, { correlationId: "x", kind: "highlights", profile: "weekly" });
+    expect(r).toMatchObject({ stories: 6, withFootage: 6 }); // weekly's maxStories, and six distinct sports are available
+    const row = (await getContent(db, r.created!))!;
+    const hl = (row.idea as any).highlights;
+    expect(hl.profile).toBe("weekly");
+    expect(hl.label).toBe(deps.cfg.schedule.compilations.weekly!.label);
+    expect(row.topic).toContain(deps.cfg.schedule.compilations.weekly!.label);
+  });
+
+  it("defaults to the first configured profile when none is given", async () => {
+    const { deps, db } = await setup();
+    const r = await runHighlights(deps, { correlationId: "x" });
+    const hl = ((await getContent(db, r.created!))!.idea as any).highlights;
+    expect(hl.profile).toBe(Object.keys(deps.cfg.schedule.compilations)[0]);
+  });
+
+  it("reports unknown_profile for a profile id that isn't configured, without touching the database", async () => {
+    const { deps, enqueued } = await setup();
+    const r = await runHighlights(deps, { correlationId: "x", profile: "nonexistent" });
+    expect(r).toMatchObject({ skippedReason: "unknown_profile", stories: 0 });
+    expect(enqueued).toHaveLength(0);
+  });
+
+  it("one profile having already run today never blocks a different profile from running the same day", async () => {
+    const { deps } = await setup();
+    const first = await runHighlights(deps, { correlationId: "x", profile: "daily" });
+    expect(first.created).toBeTruthy();
+    const again = await runHighlights(deps, { correlationId: "y", profile: "daily" });
+    expect(again).toMatchObject({ skippedReason: "already_built" });
+    const other = await runHighlights(deps, { correlationId: "z", profile: "weekly" });
+    expect(other.created).toBeTruthy();
+    expect(other.created).not.toBe(first.created);
+  });
+
+  it("candidateCount scales with the profile's story count but is never thin", () => {
+    expect(candidateCount(2)).toBe(12);
+    expect(candidateCount(4)).toBe(12);
+    expect(candidateCount(6)).toBe(18);
+  });
+
+  it("profileFootageLicenses reads the licence list from the content's own profile, and is undefined for a missing/removed one", () => {
+    const cfg = { schedule: { compilations: { daily: { footage: { licenses: ["cc0", "pexels"] } } } } } as any;
+    expect(profileFootageLicenses(cfg, { highlightsProfile: "daily" })).toEqual(["cc0", "pexels"]);
+    expect(profileFootageLicenses(cfg, { highlightsProfile: "deleted-profile" })).toBeUndefined();
+    expect(profileFootageLicenses(cfg, {})).toBeUndefined();
+    expect(profileFootageLicenses(cfg, null)).toBeUndefined();
   });
 });
 
@@ -303,20 +443,27 @@ describe("script stage for a compilation", () => {
 // ---------------------------------------------------------------- scheduling
 
 describe("scheduling", () => {
-  it("registers a daily highlights job at the configured local time, and none when disabled", async () => {
+  it("registers one job per enabled compilation profile, each at its own cron time, and skips disabled ones", async () => {
     const calls: Array<{ id: string; repeat: any; template: any }> = [];
     const q = { upsertJobScheduler: async (id: string, repeat: any, template: any) => void calls.push({ id, repeat, template }) };
     const qs: any = { queues: { ingest: q, ideate: q }, maintenance: q };
     const { deps } = await makeDeps();
-    deps.cfg.schedule.highlights.dailyAt = "17:45";
+    deps.cfg.schedule.compilations.daily!.cron = "45 17 * * *";
     const ids = await installSchedules(qs, deps.cfg);
-    expect(ids).toContain("daily-highlights");
-    const hl = calls.find((c) => c.id === "daily-highlights")!;
-    expect(hl.repeat).toEqual({ pattern: "45 17 * * *", tz: "Europe/London" });
-    expect(hl.template.data.kind).toBe("highlights");
+    expect(ids).toEqual(expect.arrayContaining(["compilation-daily", "compilation-weekly"]));
 
-    deps.cfg.schedule.highlights.enabled = false;
-    expect(await installSchedules(qs, deps.cfg)).not.toContain("daily-highlights");
+    const daily = calls.find((c) => c.id === "compilation-daily")!;
+    expect(daily.repeat).toEqual({ pattern: "45 17 * * *", tz: "Europe/London" });
+    expect(daily.template.data).toMatchObject({ kind: "highlights", profile: "daily" });
+
+    const weekly = calls.find((c) => c.id === "compilation-weekly")!;
+    expect(weekly.repeat).toEqual({ pattern: deps.cfg.schedule.compilations.weekly!.cron, tz: "Europe/London" });
+    expect(weekly.template.data).toMatchObject({ kind: "highlights", profile: "weekly" });
+
+    deps.cfg.schedule.compilations.daily!.enabled = false;
+    const idsAfter = await installSchedules(qs, deps.cfg);
+    expect(idsAfter).not.toContain("compilation-daily");
+    expect(idsAfter).toContain("compilation-weekly");
   });
 });
 

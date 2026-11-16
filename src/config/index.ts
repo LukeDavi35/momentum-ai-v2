@@ -58,8 +58,10 @@ export const envSchema = z.object({
   REDDIT_CLIENT_ID: optStr,
   REDDIT_CLIENT_SECRET: optStr,
 
-  /** Free Pexels API key (https://www.pexels.com/api/): lets the daily-highlights compilation find licensed sports footage. Optional. */
+  /** Free Pexels API key (https://www.pexels.com/api/): lets the compilation generator find licensed sports footage. Optional. */
   PEXELS_API_KEY: optStr,
+  /** A real email or profile URL, sent in the User-Agent on Wikimedia Commons API calls (their bot policy asks for one). Without it, Commons is more likely to rate-limit (HTTP 429) once a compilation searches several stories' worth of clips. Optional - Commons is skipped on a 429, never fatal. */
+  WIKIMEDIA_CONTACT: optStr,
 
   TIKTOK_CLIENT_KEY: optStr,
   TIKTOK_CLIENT_SECRET: optStr,
@@ -94,27 +96,42 @@ const platformScheduleSchema = z.object({
 
 export const FOOTAGE_PROVIDERS = ["library", "pexels", "commons"] as const;
 export type FootageProviderId = (typeof FOOTAGE_PROVIDERS)[number];
+export const FOOTAGE_LICENSES = ["cc0", "public_domain", "cc_by", "pexels", "owned"] as const;
 
-/** The daily "highlights of the day" compilation. Every field has a default so older schedule.json files keep loading. */
-export const highlightsSchema = z.object({
+const footageSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    /** Tried in this order; the first licensed clip that fits wins. */
+    providers: z.array(z.enum(FOOTAGE_PROVIDERS)).default([...FOOTAGE_PROVIDERS]),
+    minClipSeconds: z.number().positive().default(3),
+    /** Licences a clip may carry. Drop "cc_by" to use only CC0 / public domain / Pexels / your own (see DECISIONS: Commons labels are the uploader's claim). */
+    licenses: z.array(z.enum(FOOTAGE_LICENSES)).min(1).default([...FOOTAGE_LICENSES]),
+    /** A clip is not reused for this many days, so the video doesn't look the same every time. */
+    reuseCooldownDays: z.number().min(0).default(7),
+  })
+  .default({ enabled: true, providers: [...FOOTAGE_PROVIDERS], minClipSeconds: 3, licenses: [...FOOTAGE_LICENSES], reuseCooldownDays: 7 });
+
+/**
+ * One named, independently scheduled "compilation of several stories into one video" generator - the daily highlights
+ * reel is the `daily` profile below, but the generator isn't hard-wired to that cadence: a `weekly` profile (a 7-day
+ * lookback, more stories, its own cron time) runs the identical code path. Every field has a default so older
+ * schedule.json files (with no `compilations` key at all) keep loading as a single `daily` profile.
+ */
+export const compilationProfileSchema = z.object({
   enabled: z.boolean().default(true),
-  /** Local time (schedule timezone) the day's compilation is built. */
-  dailyAt: z.string().regex(/^\d{2}:\d{2}$/).default("16:30"),
-  /** Stories in one compilation. 4 fits ~50 s of narration under the 55 s script cap. */
-  maxStories: z.number().int().min(2).max(6).default(4),
+  /** Standard 5-field cron, evaluated in the schedule timezone. */
+  cron: z.string().min(9).default("30 16 * * *"),
+  /** Shown as the on-screen headline and used to word the topic/prompt; keep it short. */
+  label: z.string().min(1).max(60).default("Today's sports highlights"),
   lookbackHours: z.number().positive().default(24),
-  footage: z
-    .object({
-      enabled: z.boolean().default(true),
-      /** Tried in this order; the first licensed clip that fits wins. */
-      providers: z.array(z.enum(FOOTAGE_PROVIDERS)).default([...FOOTAGE_PROVIDERS]),
-      minClipSeconds: z.number().positive().default(3),
-      /** A clip is not reused for this many days, so the daily video doesn't look the same every day. */
-      reuseCooldownDays: z.number().min(0).default(7),
-    })
-    .default({ enabled: true, providers: [...FOOTAGE_PROVIDERS], minClipSeconds: 3, reuseCooldownDays: 7 }),
+  /** Stories in one compilation. 4-6 fits under the 55 s script cap. */
+  maxStories: z.number().int().min(2).max(6).default(4),
+  footage: footageSchema,
 });
-export type HighlightsConfig = z.infer<typeof highlightsSchema>;
+export type CompilationProfile = z.infer<typeof compilationProfileSchema>;
+
+const DEFAULT_COMPILATIONS = { daily: compilationProfileSchema.parse({}) };
+export const compilationsSchema = z.record(z.string().min(1), compilationProfileSchema).default(DEFAULT_COMPILATIONS);
 
 export const scheduleSchema = z.object({
   timezone: z.string(),
@@ -130,7 +147,7 @@ export const scheduleSchema = z.object({
   monitor: z.object({ everyMinutes: z.number().positive() }),
   analytics: z.object({ checkpoints: z.array(z.enum(["1h", "24h", "7d"])).min(1) }),
   learning: z.object({ weeklyCron: z.string() }),
-  highlights: highlightsSchema.default({ enabled: true, dailyAt: "16:30", maxStories: 4, lookbackHours: 24, footage: { enabled: true, providers: [...FOOTAGE_PROVIDERS], minClipSeconds: 3, reuseCooldownDays: 7 } }),
+  compilations: compilationsSchema,
 });
 export type ScheduleConfig = z.infer<typeof scheduleSchema>;
 

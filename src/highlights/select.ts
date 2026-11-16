@@ -2,16 +2,28 @@ import type { Cluster } from "../ideate/cluster.js";
 import { footageQuery } from "../footage/query.js";
 import type { HighlightStory } from "./types.js";
 
+/** Columns, previews and listicles read as "stories" to a clusterer but aren't news a highlights reel can fact-check. */
+export const NOT_A_NEWS_STORY = /\b(mailbag|power rankings?|predictions?|picks|preview|podcast|newsletter|quiz|how to watch|live blog|as it happened|awards?|slate|football daily)\b|^[^|]{3,40}\s\|\s/i;
+
 /**
- * Picks the day's stories from clustered, safety-filtered news: strongest first (velocity, then number of independent
- * factual sources), but preferring a different sport for each slot so the video isn't four versions of the same match.
+ * Picks the day's stories from clustered, safety-filtered news: corroborated stories (two or more outlets) first, then
+ * strongest (velocity, then number of independent factual sources), skipping columns and previews, but preferring a different sport for each slot so the video isn't four versions of the same match.
  * Only clusters with a factual (news/results) source qualify — the script may cite nothing else. Pure; unit-tested.
  */
-export function selectStories(clusters: Cluster[], max: number): Omit<HighlightStory, "footage">[] {
-  const pool = clusters
-    .filter((c) => c.citable.length > 0)
-    .map((c) => ({ c, query: footageQuery(c.headline, c.pillar) }))
-    .sort((a, b) => b.c.velocity - a.c.velocity || b.c.citable.length - a.c.citable.length || a.c.id.localeCompare(b.c.id));
+export type PickedStory = Omit<HighlightStory, "footage"> & { /** independent outlets covering it */ outlets: number; /** lead article summary, for whoever (or whatever) chooses between candidates */ summary: string };
+
+export function selectStories(clusters: Cluster[], max: number): PickedStory[] {
+  const factual = clusters.filter((c) => c.citable.length > 0);
+  const news = factual.filter((c) => !NOT_A_NEWS_STORY.test(c.headline));
+  const pool = (news.length >= 2 ? news : factual) // a quiet news day falls back to columns rather than to no video
+    .map((c) => ({ c, query: footageQuery(c.headline, c.pillar, c.items.slice(0, 3).map((i) => i.summary ?? "").join(" ")) }))
+    .sort(
+      (a, b) =>
+        Number((b.c.sources?.length ?? 0) >= 2) - Number((a.c.sources?.length ?? 0) >= 2) ||
+        b.c.velocity - a.c.velocity ||
+        b.c.citable.length - a.c.citable.length ||
+        a.c.id.localeCompare(b.c.id),
+    );
 
   const picked: typeof pool = [];
   const seenQueries = new Set<string>();
@@ -35,5 +47,7 @@ export function selectStories(clusters: Cluster[], max: number): Omit<HighlightS
     pillar: c.pillar,
     sourceItemIds: [...c.citable, ...c.items.filter((i) => !c.citable.includes(i))].slice(0, 3).map((i) => i.id),
     query,
+    outlets: c.sources?.length ?? 1,
+    summary: (c.citable[0]?.summary ?? c.items[0]?.summary ?? "").slice(0, 200),
   }));
 }

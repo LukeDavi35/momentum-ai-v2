@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { classifyLicense } from "../src/footage/licenses.js";
-import { footageQuery } from "../src/footage/query.js";
-import { commonsProvider, libraryProvider, parseCommons, pexelsProvider, pickPexelsFile } from "../src/footage/providers.js";
-import { creditLine, downloadClip, findFootage } from "../src/footage/search.js";
+import { alternateQueries, footageQuery, titleWordsFor } from "../src/footage/query.js";
+import { commonsProvider, COMMONS_MAX_CLIP_S, libraryProvider, parseCommons, pexelsProvider, pickPexelsFile, rankCommons } from "../src/footage/providers.js";
+import { creditLine, downloadClip, findFootage, userAgentFor } from "../src/footage/search.js";
 import { recentlyUsed, recordUse } from "../src/footage/store.js";
 import type { FootageClip, FootageContext } from "../src/footage/types.js";
 import type { Runner } from "../src/media/exec.js";
@@ -43,6 +43,18 @@ describe("footage query", () => {
     expect(footageQuery("Buccaneers beat Cowboys after a huge third quarter", "sports_news")).toBe("american football");
     expect(footageQuery("Wimbledon final goes to five sets", "sports_news")).toBe("tennis match");
     expect(footageQuery("London Marathon confirms a new course", "running")).toBe("marathon runners");
+  });
+  it("reads the article summary when the headline names a club or person but not the sport", () => {
+    expect(footageQuery("Crystal Palace sack Pierre Sage and in advanced talks to appoint Thomas Frank", "sports_news")).toBe("soccer match"); // club name
+    expect(footageQuery("Coach sacked after dismal run", "sports_news", "The Premier League side lost again on Saturday")).toBe("soccer match"); // summary
+    expect(footageQuery("Coach sacked after dismal run", "sports_news", "nothing about a sport")).toBe("stadium crowd");
+  });
+  it("offers fallback searches and the title words that make a clip relevant", () => {
+    expect(alternateQueries("sprinter track")).toEqual(["athletics", "running race"]);
+    expect(alternateQueries("stadium crowd")).toEqual([]);
+    expect(titleWordsFor("soccer match")).toContain("football");
+    expect(titleWordsFor("athletics")).toContain("athletics"); // an alternate maps back to its sport
+    expect(titleWordsFor("stadium crowd")).toEqual(["stadium", "crowd"]); // a generic search uses its own words
   });
   it("falls back to the pillar when no sport is named", () => {
     expect(footageQuery("Governing body announces new rules", "sports_news")).toBe("stadium crowd");
@@ -129,6 +141,19 @@ describe("wikimedia commons provider", () => {
   });
 });
 
+describe("commons ranking", () => {
+  const c = (title: string, durationS: number, w = 1280, h = 720): FootageClip => ({ provider: "commons", externalId: title, title, pageUrl: "", downloadUrl: "https://x/y.webm", license: "cc0", licenseLabel: "CC0", author: "A", attributionRequired: false, durationS, width: w, height: h });
+  it("drops clips whose title is not about the sport (full-text search is noisy)", () => {
+    const out = rankCommons("soccer match", [c("Richard Nixon explains his baseball picks", 20), c("Beach Soccer World Cup - Match 3", 11), c("Football fans in Rome", 14)]);
+    expect(out.map((x) => x.title)).toEqual(expect.arrayContaining(["Beach Soccer World Cup - Match 3", "Football fans in Rome"]));
+    expect(out).toHaveLength(2);
+  });
+  it("drops hour-long recordings, keeps unknown lengths, and prefers ~15 s then bigger frames", () => {
+    const out = rankCommons("tennis match", [c("Tennis lecture", COMMONS_MAX_CLIP_S + 1), c("Tennis rally A", 60), c("Tennis rally B", 14, 640, 360), c("Tennis rally C", 14, 1920, 1080), c("Tennis unknown length", 0)]);
+    expect(out.map((x) => x.title)).toEqual(["Tennis rally C", "Tennis rally B", "Tennis unknown length", "Tennis rally A"]);
+  });
+});
+
 describe("library provider (the owner's own footage)", () => {
   it("matches by tags/title, drops missing files and unlicensed entries, and returns the resolved path", async () => {
     const dir = mkdtempSync(join(tmpdir(), "lib-"));
@@ -195,37 +220,38 @@ describe("findFootage", () => {
   const depsFor = async (env: Record<string, string | undefined>, fetchImpl: typeof fetch, runner: Runner) => {
     const dir = mkdtempSync(join(tmpdir(), "ff-"));
     const cfg = testConfig({ DATA_DIR: dir, ...env });
-    return { cfg, db: await testDb(), log: silentLogger(), fetchImpl, runner, now: () => NOW };
+    return { cfg, db: await testDb(), log: silentLogger(), fetchImpl, runner, now: () => NOW, footage: cfg.schedule.compilations.daily!.footage };
   };
 
   it("returns a verified, credited clip from Pexels", async () => {
     const d = await depsFor({ PEXELS_API_KEY: "k" }, pexelsFetch([1, 2]), probeOk(9.5));
-    const ref = await findFootage(d, "tennis match");
+    const ref = await findFootage(d, d.footage, "tennis match");
     expect(ref).toMatchObject({ provider: "pexels", externalId: "1", durationS: 9.5, credit: "Footage: Author 1 / Pexels" });
     expect(ref!.localPath).toMatch(/footage-cache\/pexels-1\.mp4$/);
   });
 
   it("skips clips already chosen for this video and clips used within the cooldown", async () => {
     const d = await depsFor({ PEXELS_API_KEY: "k" }, pexelsFetch([1, 2, 3]), probeOk(9));
-    const first = (await findFootage(d, "q"))!;
-    const second = await findFootage(d, "q", new Set(["pexels:1"]));
+    const first = (await findFootage(d, d.footage, "q"))!;
+    const second = await findFootage(d, d.footage, "q", new Set(["pexels:1"]));
     expect(second!.externalId).toBe("2");
     await recordUse(d.db, first, null, NOW);
     expect(await recentlyUsed(d.db, 7, NOW)).toEqual(new Set(["pexels:1"]));
-    const third = await findFootage(d, "q");
+    const third = await findFootage(d, d.footage, "q");
     expect(third!.externalId).toBe("2"); // clip 1 is cooling down
     expect(await recentlyUsed(d.db, 7, new Date(NOW.getTime() + 8 * 86400_000))).toEqual(new Set()); // ...and free again after the cooldown
   });
 
   it("rejects files that are not usable video (too short, too small, no video stream) and moves on", async () => {
     const d = await depsFor({ PEXELS_API_KEY: "k", }, pexelsFetch([1]), probeOk(1.2));
-    expect(await findFootage(d, "q")).toBeNull(); // shorter than minClipSeconds (3)
+    expect(await findFootage(d, d.footage, "q")).toBeNull(); // shorter than minClipSeconds (3)
     const tiny = await depsFor({ PEXELS_API_KEY: "k" }, pexelsFetch([2]), probeOk(9, 200, 300));
-    expect(await findFootage(tiny, "q")).toBeNull();
+    expect(await findFootage(tiny, tiny.footage, "q")).toBeNull();
     const broken: Runner = async () => {
       throw new Error("ffprobe failed");
     };
-    expect(await findFootage(await depsFor({ PEXELS_API_KEY: "k" }, pexelsFetch([3]), broken), "q")).toBeNull();
+    const broke = await depsFor({ PEXELS_API_KEY: "k" }, pexelsFetch([3]), broken);
+    expect(await findFootage(broke, broke.footage, "q")).toBeNull();
   });
 
   it("falls through to the next provider when one fails, and uses Commons without any key", async () => {
@@ -237,21 +263,78 @@ describe("findFootage", () => {
       return new Response("bytes", { headers: { "content-type": "video/webm" } });
     }) as unknown as typeof fetch;
     const d = await depsFor({ PEXELS_API_KEY: "k" }, f, probeOk(20, 1280, 720));
-    const ref = await findFootage(d, "marathon runners");
+    const ref = await findFootage(d, d.footage, "marathon runners");
     expect(ref).toMatchObject({ provider: "commons", externalId: "77", license: "cc_by", attributionRequired: true });
     expect(ref!.credit).toBe("Footage: Runner Photographer / Wikimedia Commons, CC BY 4.0");
   });
 
   it("returns null when disabled, when nothing is found, or when every provider fails", async () => {
     const none = (async () => new Response(JSON.stringify({ videos: [], query: {} }))) as unknown as typeof fetch;
-    expect(await findFootage(await depsFor({ PEXELS_API_KEY: "k" }, none, probeOk(9)), "q")).toBeNull();
+    const d1 = await depsFor({ PEXELS_API_KEY: "k" }, none, probeOk(9));
+    expect(await findFootage(d1, d1.footage, "q")).toBeNull();
     const down = (async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
-    expect(await findFootage(await depsFor({ PEXELS_API_KEY: "k" }, down, probeOk(9)), "q")).toBeNull();
+    const d2 = await depsFor({ PEXELS_API_KEY: "k" }, down, probeOk(9));
+    expect(await findFootage(d2, d2.footage, "q")).toBeNull();
     const d = await depsFor({}, pexelsFetch([1]), probeOk(9));
-    d.cfg.schedule.highlights.footage.enabled = false;
-    expect(await findFootage(d, "q")).toBeNull();
+    d.footage.enabled = false;
+    expect(await findFootage(d, d.footage, "q")).toBeNull();
+  });
+
+  it("only uses licences the deployment allows (e.g. drop CC BY to rely on CC0 / public domain / Pexels / own footage)", async () => {
+    const f = (async (url: string) => {
+      if (String(url).includes("commons.wikimedia.org/w/api.php")) {
+        const page = (id: number, label: string) => ({ pageid: id, title: `File:Marathon ${id}.webm`, imageinfo: [{ url: `https://upload.wikimedia.org/${id}.webm`, mime: "video/webm", width: 1280, height: 720, duration: 15, extmetadata: { LicenseShortName: { value: label }, Artist: { value: "Someone" } } }] });
+        return new Response(JSON.stringify({ query: { pages: { a: page(1, "CC BY 4.0"), b: page(2, "CC0") } } }));
+      }
+      return new Response("bytes", { headers: { "content-type": "video/webm" } });
+    }) as unknown as typeof fetch;
+    const d = await depsFor({}, f, probeOk(15));
+    d.footage.providers = ["commons"];
+    expect((await findFootage(d, d.footage, "marathon runners"))!.externalId).toBe("1"); // best-ranked wins when both are allowed
+    d.footage.licenses = ["cc0", "public_domain", "pexels", "owned"];
+    expect((await findFootage(d, d.footage, "marathon runners"))!.externalId).toBe("2"); // CC BY now excluded
+    d.footage.licenses = ["pexels"];
+    expect(await findFootage(d, d.footage, "marathon runners")).toBeNull();
+  });
+
+  it("tries the fallback searches in order when the first finds nothing", async () => {
+    const queries: string[] = [];
+    const f = (async (url: string) => {
+      const u = String(url);
+      if (u.includes("api.pexels.com")) {
+        const q = new URL(u).searchParams.get("query")!;
+        queries.push(q);
+        return new Response(JSON.stringify({ videos: q === "athletics" ? [{ id: 5, url: "https://www.pexels.com/video/a-5/", duration: 10, user: { name: "A" }, video_files: [{ file_type: "video/mp4", width: 1080, height: 1920, link: "https://v.test/5.mp4" }] }] : [] }));
+      }
+      return new Response("bytes", { headers: { "content-type": "video/mp4" } });
+    }) as unknown as typeof fetch;
+    const d = await depsFor({ PEXELS_API_KEY: "k" }, f, probeOk(10));
+    expect((await findFootage(d, d.footage, ["sprinter track", "athletics", "running race"]))!.externalId).toBe("5");
+    expect(queries).toEqual(["sprinter track", "athletics"]); // stops at the first hit
+  });
+
+  it("carries a real contact in the User-Agent when WIKIMEDIA_CONTACT is set, and falls back to the generic one otherwise", () => {
+    expect(userAgentFor(testConfig())).toBe("momentum-ai-v2/2.0 (sports video automation; contact: see repository)");
+    expect(userAgentFor(testConfig({ WIKIMEDIA_CONTACT: "ops@example.com" }))).toBe("momentum-ai-v2/2.0 (sports video automation; contact: see repository) (contact: ops@example.com)");
+  });
+
+  it("stops trying more candidates from a provider once it rate-limits (429), rather than hammering it, and tries the next provider", async () => {
+    const seen: string[] = [];
+    const f = (async (url: string) => {
+      const u = String(url);
+      if (u.includes("api.pexels.com")) return new Response(JSON.stringify({ videos: [1, 2, 3, 4].map((id) => ({ id, url: `https://www.pexels.com/video/v-${id}/`, duration: 10, user: { name: `A${id}` }, video_files: [{ file_type: "video/mp4", width: 1080, height: 1920, link: `https://v.test/${id}.mp4` }] })) }));
+      if (u.includes("commons.wikimedia.org/w/api.php")) {
+        return new Response(JSON.stringify({ query: { pages: { a: { pageid: 9, title: "File:Marathon runner.webm", imageinfo: [{ url: "https://upload.wikimedia.org/9.webm", mime: "video/webm", width: 1280, height: 720, duration: 15, extmetadata: { LicenseShortName: { value: "CC0" }, Artist: { value: "A" } } }] } } } }));
+      }
+      seen.push(u);
+      return new Response("too many requests", { status: 429 });
+    }) as unknown as typeof fetch;
+    const d = await depsFor({ PEXELS_API_KEY: "k" }, f, probeOk(10));
+    d.footage.providers = ["pexels", "commons"];
+    expect(await findFootage(d, d.footage, "marathon runners")).toBeNull(); // every download 429s, including Commons' one real candidate
+    expect(seen).toHaveLength(2); // one download attempt per provider (the first candidate), not four each - the next provider still gets its own try
   });
 
   it("builds credit lines per provider", () => {

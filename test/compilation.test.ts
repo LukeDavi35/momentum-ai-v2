@@ -159,6 +159,13 @@ describe("post text and QA for a compilation", () => {
     expect(rules).toContain("footage_license");
     expect(rules).toContain("footage_credit");
   });
+  it("fails a clip whose (otherwise accepted) licence this deployment has switched off", () => {
+    const by = script(compilation([clip("1", { license: "cc_by", licenseLabel: "CC BY 4.0" }), clip("2"), clip("3")]));
+    expect(checkCompilation(by, meta(by), ALL)).toEqual([]); // allowed by default
+    const v = checkCompilation(by, meta(by), ALL, ["cc0", "public_domain", "pexels", "owned"]);
+    expect(v.map((x) => x.rule)).toEqual(["footage_license"]);
+    expect(v[0]!.excerpt).toMatch(/does not allow/);
+  });
   it("fails when the post text lacks a credit or the illustrative note", () => {
     const m = meta(withFootage);
     m.youtube = { ...m.youtube, caption: m.youtube.caption.replace("Footage: Author 2 / Pexels", "").replace(ILLUSTRATIVE_NOTE, "") };

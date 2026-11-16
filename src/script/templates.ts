@@ -34,8 +34,8 @@ export const TEMPLATE_SPECS: Record<Template, TemplateSpec> = {
   },
   daily_highlights: {
     structure:
-      "This is a COMPILATION of the day's top stories (listed in the STORIES block, in order). Beat 1 = hook that teases today's top stories (<=14 words, no numbers). Then EXACTLY one beat per story, in the order listed, each ~18-24 words, opening with the subject so the viewer knows which story it is, using ONLY that story's own sources. Final beat = short call to follow for tomorrow's highlights. Each story beat's claims must cite that story's sources.",
-    visual: 'headline = "Today\'s sports highlights"; items = [] (leave empty); stat = null. A story beat\'s onScreen = a <=40-character title for that story.',
+      "This is a COMPILATION of several top stories (listed in the STORIES block, in order). Beat 1 = hook that teases the stories ahead (<=14 words, no numbers, no \"today\"/\"this week\" wording - the Visual headline already says the period). Then EXACTLY one beat per story, in the order listed, each ~18-24 words, opening with the subject so the viewer knows which story it is, using ONLY that story's own sources. Final beat = short call to follow for more. Each story beat's claims must cite that story's sources.",
+    visual: "headline = the exact text given as \"Visual headline\" below; items = [] (leave empty); stat = null. A story beat's onScreen = a <=40-character title for that story.",
   },
 };
 

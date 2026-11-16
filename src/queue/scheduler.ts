@@ -29,9 +29,11 @@ export async function installSchedules(qs: QueueSet, cfg: AppConfig): Promise<st
   await add("ideate", "ideate-cycle", { every: mins(s.ideate.everyMinutes) }, "cycle");
   const [h, m] = s.plan.dailyAt.split(":").map(Number);
   await add("ideate", "daily-housekeeping", { pattern: `${m} ${h} * * *`, tz }, "housekeeping");
-  if (s.highlights.enabled) {
-    const [hh, hm] = s.highlights.dailyAt.split(":").map(Number);
-    await add("ideate", "daily-highlights", { pattern: `${hm} ${hh} * * *`, tz }, "highlights");
+  for (const [id, profile] of Object.entries(s.compilations)) {
+    if (!profile.enabled) continue;
+    const q = qs.queues.ideate;
+    await q.upsertJobScheduler(`compilation-${id}`, { pattern: profile.cron, tz }, { name: "ideate", data: { kind: "highlights", profile: id, correlationId: PLACEHOLDER }, opts: TEMPLATE_OPTS });
+    installed.push(`compilation-${id}`);
   }
   await add(MAINTENANCE_QUEUE, "reconcile", { every: mins(10) }, "reconcile");
   await add(MAINTENANCE_QUEUE, "monitor", { every: mins(s.monitor.everyMinutes) }, "monitor");

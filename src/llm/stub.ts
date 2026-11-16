@@ -30,6 +30,10 @@ export class StubProvider implements LlmProvider {
         return stubVerify(req.input as any);
       case "qa.review":
         return stubReview(req.input as any);
+      case "highlights.pick": {
+        const { want, candidates } = req.input as { want: number; candidates: Array<{ id: number }> };
+        return { picks: candidates.slice(0, want).map((c) => ({ id: c.id, why: "stub: top of the deterministic ranking" })) };
+      }
       case "learning.report":
         return { summary: "Stub summary: see the tables below for the numbers." };
       default:
@@ -106,8 +110,9 @@ const HASHTAGS: Record<string, string[]> = {
 
 /** Compilation script: hook, one beat per story (its lead headline, cited to that story's first factual source), sign-off. */
 function stubHighlights(input: ScriptPromptInput) {
+  const headline = input.headline ?? "Top sports highlights";
   const bySource = new Map(input.sources.map((s) => [s.alias, s]));
-  const beats: any[] = [{ id: "b1", text: "Here are today's top sports stories.", onScreen: "Today's top stories", claimIds: [] }];
+  const beats: any[] = [{ id: "b1", text: "Here are the top sports stories.", onScreen: headline, claimIds: [] }];
   const claims: any[] = [];
   for (const st of input.stories ?? []) {
     const src = st.aliases.map((a) => bySource.get(a)).find((s) => s?.citable);
@@ -117,18 +122,18 @@ function stubHighlights(input: ScriptPromptInput) {
     claims.push({ id, text, source: src.alias, kind: "fact" });
     beats.push({ id: `b${beats.length + 1}`, text, onScreen: capChars(text, 40), claimIds: [id] });
   }
-  beats.push({ id: `b${beats.length + 1}`, text: "Follow Momentum for tomorrow's highlights.", onScreen: "Follow for more", claimIds: [] });
+  beats.push({ id: `b${beats.length + 1}`, text: "Follow Momentum for more highlights.", onScreen: "Follow for more", claimIds: [] });
   const tags = HASHTAGS.sports_news!;
   return {
-    title: "Today's sports highlights",
+    title: headline,
     hookStyle: "news",
     beats,
     claims,
-    visual: { headline: "Today's sports highlights", stat: null, statLabel: null, items: [] },
+    visual: { headline, stat: null, statLabel: null, items: [] },
     variants: {
-      tiktok: { caption: "Today's top sports stories in one video", hashtags: tags.slice(0, 4) },
-      instagram: { caption: "Today's top sports stories in one video", hashtags: tags.slice(0, 5) },
-      youtube: { title: "Today's sports highlights", description: "The biggest sports stories of the day in one short video.", hashtags: tags.slice(0, 3) },
+      tiktok: { caption: "The biggest sports stories in one video", hashtags: tags.slice(0, 4) },
+      instagram: { caption: "The biggest sports stories in one video", hashtags: tags.slice(0, 5) },
+      youtube: { title: headline, description: "The biggest sports stories in one short video.", hashtags: tags.slice(0, 3) },
     },
   };
 }

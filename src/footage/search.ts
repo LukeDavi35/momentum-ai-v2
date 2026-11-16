@@ -2,7 +2,7 @@ import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync 
 import { extname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { AppConfig } from "../config/index.js";
+import type { AppConfig, CompilationProfile } from "../config/index.js";
 import type { Db } from "../db/db.js";
 import type { Logger } from "../logger.js";
 import { probe, run, type Runner } from "../media/exec.js";
@@ -12,6 +12,12 @@ import { clipKey, type FootageClip, type FootageContext, type FootageRef } from 
 
 export const MAX_DOWNLOAD_MB = 80;
 export const USER_AGENT = "momentum-ai-v2/2.0 (sports video automation; contact: see repository)";
+
+/** A real contact (WIKIMEDIA_CONTACT) in the UA is Wikimedia's own bot-policy ask, and in practice makes Commons less likely to rate-limit us. */
+export const userAgentFor = (cfg: AppConfig): string => (cfg.env.WIKIMEDIA_CONTACT ? `${USER_AGENT} (contact: ${cfg.env.WIKIMEDIA_CONTACT})` : USER_AGENT);
+
+/** True for an HTTP 429 - the only failure where trying more candidates from the SAME provider is pointless (and makes the throttling worse). */
+const isRateLimited = (e: unknown): boolean => /responded 429\b/.test((e as Error)?.message ?? "");
 
 export interface FootageDeps {
   cfg: AppConfig;
@@ -28,7 +34,7 @@ export const creditLine = (c: Pick<FootageClip, "provider" | "author" | "license
 };
 
 /** Streams a clip to the cache. Refuses anything over the size cap or that isn't served as video. Returns the local path. */
-export async function downloadClip(clip: FootageClip, cacheDir: string, fetchImpl: typeof fetch, maxMb = MAX_DOWNLOAD_MB): Promise<string> {
+export async function downloadClip(clip: FootageClip, cacheDir: string, fetchImpl: typeof fetch, maxMb = MAX_DOWNLOAD_MB, userAgent = USER_AGENT): Promise<string> {
   if (!clip.downloadUrl) throw new Error("clip has no download URL");
   mkdirSync(cacheDir, { recursive: true });
   const ext = extname(new URL(clip.downloadUrl).pathname) || ".mp4";
@@ -36,7 +42,7 @@ export async function downloadClip(clip: FootageClip, cacheDir: string, fetchImp
   const dest = join(cacheDir, `${clip.provider}-${safeId}${ext}`);
   if (existsSync(dest) && statSync(dest).size > 0) return dest; // cache hit
 
-  const res = await fetchImpl(clip.downloadUrl, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(120_000) });
+  const res = await fetchImpl(clip.downloadUrl, { headers: { "User-Agent": userAgent }, signal: AbortSignal.timeout(120_000) });
   if (!res.ok || !res.body) throw new Error(`download responded ${res.status}`);
   const type = res.headers.get("content-type") ?? "";
   if (type && !/^(video\/|application\/(octet-stream|ogg))/.test(type)) throw new Error(`download is ${type}, not video`);
@@ -77,12 +83,19 @@ async function verify(cfg: AppConfig, path: string, minS: number, runner: Runner
  * provider that errors (network, quota, bad key) is skipped, never fatal — a compilation without footage still renders.
  * `exclude` holds clips already chosen for this video, so two stories never get the same clip.
  */
-export async function findFootage(deps: FootageDeps, query: string, exclude: Set<string> = new Set()): Promise<FootageRef | null> {
+export async function findFootage(deps: FootageDeps, footage: CompilationProfile["footage"], query: string | string[], exclude: Set<string> = new Set()): Promise<FootageRef | null> {
+  for (const q of Array.isArray(query) ? query : [query]) {
+    const found = await findFootageFor(deps, footage, q, exclude);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function findFootageFor(deps: FootageDeps, fcfg: CompilationProfile["footage"], query: string, exclude: Set<string>): Promise<FootageRef | null> {
   const { cfg, db, log } = deps;
-  const fcfg = cfg.schedule.highlights.footage;
   if (!fcfg.enabled) return null;
   const runner = deps.runner ?? run;
-  const ctx: FootageContext = { fetchImpl: deps.fetchImpl ?? fetch, pexelsKey: cfg.env.PEXELS_API_KEY, dataDir: cfg.env.DATA_DIR, userAgent: USER_AGENT };
+  const ctx: FootageContext = { fetchImpl: deps.fetchImpl ?? fetch, pexelsKey: cfg.env.PEXELS_API_KEY, dataDir: cfg.env.DATA_DIR, userAgent: userAgentFor(cfg) };
   const cooling = await recentlyUsed(db, fcfg.reuseCooldownDays, deps.now());
   const cacheDir = join(cfg.env.DATA_DIR, "footage-cache");
 
@@ -97,10 +110,10 @@ export async function findFootage(deps: FootageDeps, query: string, exclude: Set
       log.warn({ provider: id, query, err: (e as Error).message }, "footage search failed; trying the next provider");
       continue;
     }
-    const fresh = candidates.filter((c) => !exclude.has(clipKey(c)) && !cooling.has(clipKey(c)));
+    const fresh = candidates.filter((c) => fcfg.licenses.includes(c.license) && !exclude.has(clipKey(c)) && !cooling.has(clipKey(c)));
     for (const clip of fresh.slice(0, 4)) {
       try {
-        const localPath = clip.localPath ?? (await downloadClip(clip, cacheDir, ctx.fetchImpl));
+        const localPath = clip.localPath ?? (await downloadClip(clip, cacheDir, ctx.fetchImpl, MAX_DOWNLOAD_MB, ctx.userAgent));
         const real = await verify(cfg, localPath, fcfg.minClipSeconds, runner);
         if (!real) {
           log.info({ provider: id, clip: clip.externalId }, "footage clip rejected: not usable video");
@@ -109,6 +122,7 @@ export async function findFootage(deps: FootageDeps, query: string, exclude: Set
         return { ...clip, ...real, localPath, credit: creditLine(clip) };
       } catch (e) {
         log.warn({ provider: id, clip: clip.externalId, err: (e as Error).message }, "footage clip skipped");
+        if (isRateLimited(e)) break; // the next candidate would hit the same wall; try the next provider instead
       }
     }
   }

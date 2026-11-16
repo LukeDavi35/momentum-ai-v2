@@ -1,4 +1,4 @@
-import type { Platform } from "../config/index.js";
+import { FOOTAGE_LICENSES, type Platform } from "../config/index.js";
 import { classifyLicense } from "../footage/licenses.js";
 import { ILLUSTRATIVE_NOTE } from "../footage/query.js";
 import type { PlatformMetadata } from "../publish/metadata.js";
@@ -12,7 +12,7 @@ export const MIN_STORIES = 2;
  * the rules are strict: every clip must still carry an accepted licence, be credited, and the posts must say it is
  * illustrative footage (it is stock/archive b-roll of the sport, not of the events narrated).
  */
-export function checkCompilation(script: ScriptDoc, metadata: Partial<Record<Platform, PlatformMetadata>>, enabled: readonly Platform[]): PolicyViolation[] {
+export function checkCompilation(script: ScriptDoc, metadata: Partial<Record<Platform, PlatformMetadata>>, enabled: readonly Platform[], allowedLicenses: readonly string[] = FOOTAGE_LICENSES): PolicyViolation[] {
   const v: PolicyViolation[] = [];
   const c = script.compilation;
   if (!c) return [{ rule: "compilation", where: "script", excerpt: "a daily_highlights piece has no compilation plan" }];
@@ -22,7 +22,9 @@ export function checkCompilation(script: ScriptDoc, metadata: Partial<Record<Pla
   for (const seg of c.segments) {
     const f = seg.footage;
     if (!f) continue;
-    if (!classifyLicense(f.licenseLabel)) v.push({ rule: "footage_license", where: `segment:${seg.storyIndex}`, excerpt: `clip ${f.provider}:${f.externalId} has licence "${f.licenseLabel}", which is not an accepted licence` });
+    const verdict = classifyLicense(f.licenseLabel);
+    if (verdict && !allowedLicenses.includes(verdict.id)) v.push({ rule: "footage_license", where: `segment:${seg.storyIndex}`, excerpt: `clip ${f.provider}:${f.externalId} is licensed "${f.licenseLabel}", which this deployment does not allow` });
+    else if (!verdict) v.push({ rule: "footage_license", where: `segment:${seg.storyIndex}`, excerpt: `clip ${f.provider}:${f.externalId} has licence "${f.licenseLabel}", which is not an accepted licence` });
     if (!f.credit.trim()) v.push({ rule: "footage_credit", where: `segment:${seg.storyIndex}`, excerpt: `clip ${f.provider}:${f.externalId} has no credit line` });
     else credits.push(f.credit);
   }

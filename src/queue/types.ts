@@ -21,6 +21,8 @@ export interface JobData {
   kind?: string;
   publicationId?: string;
   checkpoint?: "1h" | "24h" | "7d";
+  /** ideate kind=highlights only: which entry of config/schedule.json -> compilations to build. */
+  profile?: string;
 }
 
 export interface EnqueueOptions {
@@ -57,6 +59,7 @@ export function jobIdFor(queue: QueueName, data: JobData): string {
   if (data.publicationId) parts.push(data.publicationId);
   if (data.kind) parts.push(data.kind);
   if (data.checkpoint) parts.push(data.checkpoint);
+  if (data.profile) parts.push(data.profile);
   if (data.regen !== undefined) parts.push(`r${data.regen}`);
   return parts.join("__");
 }

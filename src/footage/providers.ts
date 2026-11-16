@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { classifyLicense } from "./licenses.js";
+import { titleWordsFor } from "./query.js";
 import type { FootageClip, FootageContext, FootageProvider } from "./types.js";
 
 const stripTags = (s: string): string => s.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/\s+/g, " ").trim();
@@ -81,6 +82,16 @@ export function parseCommons(json: any): FootageClip[] {
   return out;
 }
 
+/** Commons search is full-text and noisy, and holds hour-long recordings. Keep clips whose TITLE is about the sport and of a usable length, shortest-to-~15 s first, bigger frames first. */
+export const COMMONS_MAX_CLIP_S = 300;
+export function rankCommons(query: string, clips: FootageClip[]): FootageClip[] {
+  const words = titleWordsFor(query);
+  return clips
+    .filter((c) => words.some((w) => c.title.toLowerCase().includes(w)))
+    .filter((c) => c.durationS === 0 || c.durationS <= COMMONS_MAX_CLIP_S)
+    .sort((a, b) => Math.abs(a.durationS - 15) - Math.abs(b.durationS - 15) || b.width * b.height - a.width * a.height);
+}
+
 export const commonsProvider: FootageProvider = {
   id: "commons",
   async search(query, ctx) {
@@ -95,7 +106,7 @@ export const commonsProvider: FootageProvider = {
       iiprop: "url|size|mime|extmetadata",
       origin: "*",
     });
-    return parseCommons(await getJson(ctx, `https://commons.wikimedia.org/w/api.php?${params}`));
+    return rankCommons(query, parseCommons(await getJson(ctx, `https://commons.wikimedia.org/w/api.php?${params}`)));
   },
 };
 

@@ -28,6 +28,8 @@ export interface ScriptPromptInput {
   evergreen: boolean;
   /** daily_highlights only: the stories to tell, in order, each with the aliases of its own sources. */
   stories?: Array<{ n: number; headline: string; aliases: string[] }>;
+  /** daily_highlights only: the exact on-screen headline/title text for this run (the compilation profile's label). */
+  headline?: string;
 }
 
 const highlightsOf = (content: Content): HighlightsIdea | null => ((content.idea as any)?.highlights as HighlightsIdea | undefined) ?? null;
@@ -54,8 +56,9 @@ function buildPrompt(content: Content, sources: SourceItem[], lengthTarget: stri
   const hl = content.template === "daily_highlights" ? highlightsOf(content) : null;
   const idToAlias = new Map(aliased.map((s) => [s.id, s.alias]));
   const stories = hl?.stories.map((st, i) => ({ n: i + 1, headline: st.headline, aliases: st.sourceItemIds.map((id) => idToAlias.get(id)).filter((a): a is string => !!a) }));
+  const headline = hl?.label;
   const storiesBlock = stories
-    ? `\nSTORIES (tell exactly these ${stories.length}, in this order, one beat each):\n${stories.map((st) => `Story ${st.n} [sources: ${st.aliases.join(", ")}]: ${st.headline}`).join("\n")}\n`
+    ? `\nSTORIES (tell exactly these ${stories.length}, in this order, one beat each):\n${stories.map((st) => `Story ${st.n} [sources: ${st.aliases.join(", ")}]: ${st.headline}`).join("\n")}\nVisual headline MUST be exactly: "${headline}" (verbatim, do not change it).\n`
     : "";
 
   const system = `${BRAND_VOICE}\n\nYou write short-form (vertical video) scripts. ${HOOK_RULES}\nRespond with ONLY JSON.`;
@@ -83,7 +86,7 @@ ${feedback ? `\nA previous version FAILED review. Fix these problems:\n${feedbac
 JSON shape:
 {"title":"","hookStyle":"question|stat|contrast|promise|story|news","beats":[{"id":"b1","text":"voiceover words","onScreen":"short on-screen text","claimIds":["c1"]}],"claims":[{"id":"c1","text":"","source":"S1","kind":"fact","quote":null}],"visual":{"headline":"","stat":null,"statLabel":null,"items":[]},"variants":{"tiktok":{"caption":"","hashtags":[]},"instagram":{"caption":"","hashtags":[]},"youtube":{"title":"","description":"","hashtags":[]}}}
 Use between ${MIN_BEATS} and ${stories ? stories.length + 2 : 9} beats.`;
-  const input: ScriptPromptInput = { template: content.template, pillar: content.pillar, topic: content.topic, angle: (content.idea as any).angle ?? "", hookStyle: content.hookStyle, sources: aliased, feedback, lengthTarget, evergreen, ...(stories ? { stories } : {}) };
+  const input: ScriptPromptInput = { template: content.template, pillar: content.pillar, topic: content.topic, angle: (content.idea as any).angle ?? "", hookStyle: content.hookStyle, sources: aliased, feedback, lengthTarget, evergreen, ...(stories ? { stories, headline } : {}) };
   return { system, prompt, input, aliased };
 }
 

@@ -8,7 +8,7 @@ import type { ScriptDoc } from "../script/types.js";
 import { narrationOf, wordCount } from "../script/types.js";
 import type { VoiceDoc } from "../voice/agent.js";
 import { auditNarration, verifyClaims, type ClaimVerdict } from "./factcheck.js";
-import { profileFootageLicenses } from "../highlights/agent.js";
+import { profileFootageLicenses, refreshCompilationFootage } from "../highlights/agent.js";
 import { checkCompilation } from "./compilation.js";
 import { checkPolicy, type PolicyViolation } from "./policy.js";
 import { describeHits, findSensitive } from "./sensitivity.js";
@@ -135,31 +135,50 @@ async function handleFailure(deps: Deps, content: Content, doc: QaDoc): Promise<
   const renderSide = new Set(["loudness", "true_peak", "black_frames", "no_black_start", "resolution", "video_codec", "fps", "file_size", "audio_present"]);
   const renderOnly = technicalOnly && doc.failures.every((f) => renderSide.has(f.reason.split(":")[0]!));
 
+  const regenerate = async (ideaPatch?: Record<string, unknown>): Promise<QaOutcome> => {
+    const idea = ideaPatch ? { ...content.idea, ...ideaPatch } : undefined;
+    if (renderOnly) {
+      await transition(db, content.id, "qa_failed", "voiced", { regen_count: regen + 1, render: null, qa_feedback: null, ...(idea ? { idea } : {}) }, { stage: "qa", detail: { retry: "render", regen: regen + 1 } });
+      await deps.enqueue("render", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
+      log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA render-side failure; re-rendering with a different audio strategy (voiceover kept)");
+      return "rerendering";
+    }
+    if (technicalOnly) {
+      // the script is fine — the voiceover itself or its timing is wrong, so redo voice + render, keep the script
+      await transition(db, content.id, "qa_failed", "scripted", { regen_count: regen + 1, voice: null, render: null, qa_feedback: null, ...(idea ? { idea } : {}) }, { stage: "qa", detail: { retry: "voice+render", regen: regen + 1 } });
+      await deps.enqueue("voice", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
+      log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA technical failure; re-voicing and re-rendering");
+      return "rerendering";
+    }
+    await transition(db, content.id, "qa_failed", "idea", { regen_count: regen + 1, qa_feedback: feedback, ...(idea ? { idea } : {}) }, { stage: "qa", detail: { retry: "script", regen: regen + 1 } });
+    await deps.enqueue("script", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
+    log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA content failure; regenerating script with reviewer feedback");
+    return "regenerating";
+  };
+
   const sensitive = doc.failures.some((f) => f.reason.startsWith("sensitive_topic"));
-  if (regen >= cfg.qa.maxRegenerations || sensitive) {
+  const atLimit = regen >= cfg.qa.maxRegenerations;
+  const extraAttemptUsed = Boolean((content.idea as Record<string, unknown>)?.autonomyExtraAttemptUsed);
+
+  // Autonomy agent: one bonus attempt before a hold, trying something DIFFERENT where we can (fresh footage
+  // for a licence/missing-footage hold) rather than just repeating the same regeneration. Never for a
+  // sensitive-topic hold - that stays an immediate human decision - and never more than once per item.
+  if (atLimit && !sensitive && !extraAttemptUsed) {
+    const footageFailure = doc.failures.some((f) => f.reason.startsWith("footage_license"));
+    const refreshed = footageFailure ? await refreshCompilationFootage(deps, content) : null;
+    const outcome = await regenerate({ autonomyExtraAttemptUsed: true, ...(refreshed ? { highlights: refreshed } : {}) });
+    log.info({ contentId: content.id, correlationId: content.correlationId, strategy: refreshed ? "alternate footage" : "one extra regeneration" }, "autonomy agent: trying a different remediation before holding");
+    return outcome;
+  }
+
+  if (atLimit || sensitive) {
     await transition(db, content.id, "qa_failed", "held", { error: sensitive ? "Held: sensitive topic (needs a human decision)" : `QA failed after ${regen + 1} attempts`, failed_stage: "qa", qa_feedback: feedback }, { stage: "qa", detail: { reason: sensitive ? "sensitive topic" : "regeneration budget exhausted" } });
     await deps.alerter.send({ key: `held:${content.id}`, severity: "warning", title: sensitive ? "Content HELD: sensitive topic (will not publish)" : "Content HELD after repeated QA failures (will not publish)", body: `${content.topic}\n${feedback}`.slice(0, 1500) });
     log.warn({ contentId: content.id, correlationId: content.correlationId, failures: doc.failures.length }, "QA failed; content held");
     return "held";
   }
 
-  if (renderOnly) {
-    await transition(db, content.id, "qa_failed", "voiced", { regen_count: regen + 1, render: null, qa_feedback: null }, { stage: "qa", detail: { retry: "render", regen: regen + 1 } });
-    await deps.enqueue("render", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
-    log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA render-side failure; re-rendering with a different audio strategy (voiceover kept)");
-    return "rerendering";
-  }
-  if (technicalOnly) {
-    // the script is fine — the voiceover itself or its timing is wrong, so redo voice + render, keep the script
-    await transition(db, content.id, "qa_failed", "scripted", { regen_count: regen + 1, voice: null, render: null, qa_feedback: null }, { stage: "qa", detail: { retry: "voice+render", regen: regen + 1 } });
-    await deps.enqueue("voice", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
-    log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA technical failure; re-voicing and re-rendering");
-    return "rerendering";
-  }
-  await transition(db, content.id, "qa_failed", "idea", { regen_count: regen + 1, qa_feedback: feedback }, { stage: "qa", detail: { retry: "script", regen: regen + 1 } });
-  await deps.enqueue("script", { contentId: content.id, correlationId: content.correlationId, regen: regen + 1 });
-  log.warn({ contentId: content.id, correlationId: content.correlationId, regen: regen + 1 }, "QA content failure; regenerating script with reviewer feedback");
-  return "regenerating";
+  return regenerate();
 }
 
 /** 3+ failed QA runs in a row usually means something systemic (bad prompt, source outage, broken render), not bad luck. */

@@ -1,5 +1,6 @@
 import type { Db } from "../db/db.js";
 import type { LimitsConfig, PricingConfig, SpendProvider } from "../config/index.js";
+import { liveSpendCap } from "./capOverrides.js";
 import { PROVIDER_QUEUES, type QueueName } from "../queue/names.js";
 
 export class SpendCapExceeded extends Error {
@@ -71,8 +72,7 @@ export class SpendTracker {
 
   /** Throws SpendCapExceeded if spending `projectedUsd` more would breach the daily or monthly cap. */
   async guard(provider: SpendProvider, projectedUsd = 0): Promise<void> {
-    const cap = this.limits.providers[provider];
-    if (!cap) throw new Error(`No spend limit configured for provider ${provider}`);
+    const cap = await liveSpendCap(this.db, this.limits, provider);
     const now = this.now();
     const [day, month] = await Promise.all([this.spentSince(provider, startOfUtcDay(now)), this.spentSince(provider, startOfUtcMonth(now))]);
     if (day + projectedUsd > cap.daily) throw new SpendCapExceeded(provider, "daily", day, cap.daily);
@@ -104,7 +104,8 @@ export class SpendTracker {
   async summary(): Promise<SpendSummaryRow[]> {
     const now = this.now();
     const out: SpendSummaryRow[] = [];
-    for (const [provider, cap] of Object.entries(this.limits.providers) as [SpendProvider, { daily: number; monthly: number }][]) {
+    for (const provider of Object.keys(this.limits.providers) as SpendProvider[]) {
+      const cap = await liveSpendCap(this.db, this.limits, provider);
       const [d, m] = await Promise.all([this.spentSince(provider, startOfUtcDay(now)), this.spentSince(provider, startOfUtcMonth(now))]);
       out.push({ provider, dailySpent: d, dailyCap: cap.daily, monthlySpent: m, monthlyCap: cap.monthly, capped: d >= cap.daily || m >= cap.monthly });
     }

@@ -1,5 +1,6 @@
 import type { Db } from "../db/db.js";
-import { effectiveMaxPostsPerDay, type AppConfig, type Platform } from "../config/index.js";
+import type { AppConfig, Platform } from "../config/index.js";
+import { liveMaxPostsPerDay } from "./capOverrides.js";
 
 export class PostCapReached extends Error {
   constructor(public readonly scope: "global" | Platform, public readonly count: number, public readonly cap: number) {
@@ -31,7 +32,7 @@ export async function postsInLast24h(db: Db, dryRun: boolean, platform?: Platfor
 /** `excludePublicationId` lets a publication that is itself marked `publishing` re-check the caps without counting itself. */
 export async function assertCanPublish(db: Db, cfg: AppConfig, platform: Platform, now = new Date(), excludePublicationId?: string): Promise<void> {
   const dry = cfg.env.DRY_RUN;
-  const globalCap = effectiveMaxPostsPerDay(cfg);
+  const globalCap = await liveMaxPostsPerDay(db, cfg);
   const global = await postsInLast24h(db, dry, undefined, now, excludePublicationId);
   if (global >= globalCap) throw new PostCapReached("global", global, globalCap);
   const platformCap = cfg.schedule.platforms[platform].postsPerDay;

@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { getFastAdapt } from "../autonomy/fastAdapt.js";
 import { getCurrentWeights, saveWeights } from "../ideate/weights.js";
 import type { Deps } from "../queue/types.js";
 import { loadPerfRows, scoreRows } from "./performance.js";
 import { renderDigest, renderWeeklyReport, type ReportInput } from "./report.js";
-import { computeNewWeights } from "./update.js";
+import { computeNewWeights, FAST_ADAPT } from "./update.js";
 
 export interface LearningResult {
   rows: number;
@@ -13,6 +14,7 @@ export interface LearningResult {
   weightVersion?: number;
   reportPath: string;
   skipped?: string;
+  fastAdapt: boolean;
 }
 
 /**
@@ -29,13 +31,15 @@ export async function runWeeklyLearning(deps: Deps, opts: { reportDir?: string; 
 
   const rows = scoreRows(await loadPerfRows(db, { since, includeDryRun: dry, tz: cfg.schedule.timezone }));
   const current = await getCurrentWeights(db);
-  const update = computeNewWeights(current.weights, rows);
+  const fastAdapt = (await getFastAdapt(db)).enabled;
+  const update = computeNewWeights(current.weights, rows, fastAdapt ? FAST_ADAPT : undefined);
 
   let weightVersion: number | undefined;
   const persist = !dry && update.changes.length > 0 && !update.skipped;
   if (persist) {
     const top = [...update.changes].sort((a, b) => Math.abs(b.to - b.from) - Math.abs(a.to - a.from)).slice(0, 3);
-    weightVersion = await saveWeights(db, update.weights, `weekly learning from ${update.rows} posts: ${top.map((c) => `${c.dimension}.${c.key} ${c.from}→${c.to}`).join(", ")}`, "auto");
+    const tag = fastAdapt ? " [fast-adapt]" : "";
+    weightVersion = await saveWeights(db, update.weights, `weekly learning from ${update.rows} posts${tag}: ${top.map((c) => `${c.dimension}.${c.key} ${c.from}→${c.to}`).join(", ")}`, "auto");
   }
 
   const weekAgo = new Date(now.getTime() - 7 * 86400_000).toISOString();
@@ -71,6 +75,6 @@ export async function runWeeklyLearning(deps: Deps, opts: { reportDir?: string; 
   writeFileSync(join(dir, `weekly-${now.toISOString().slice(0, 10)}.md`), md); // history of every report
   // the owner reads this on their phone once a week; the full report stays on the dashboard
   await deps.alerter.send({ key: "weekly_report", severity: reportInput.counts.held > 0 ? "warning" : "info", title: "Momentum weekly report", body: renderDigest(reportInput), throttleMs: 0 });
-  log.info({ rows: update.rows, changes: update.changes.length, persisted: persist, weightVersion, reportPath }, "weekly learning done");
-  return { rows: update.rows, changes: update.changes.length, persisted: persist, weightVersion, reportPath, skipped: update.skipped };
+  log.info({ rows: update.rows, changes: update.changes.length, persisted: persist, weightVersion, reportPath, fastAdapt }, "weekly learning done");
+  return { rows: update.rows, changes: update.changes.length, persisted: persist, weightVersion, reportPath, skipped: update.skipped, fastAdapt };
 }

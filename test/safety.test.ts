@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "../src/db/db.js";
 import { Alerter } from "../src/safety/alerts.js";
+import { getCapOverrides, liveMaxPostsPerDay, liveSpendCap, setCapOverride } from "../src/safety/capOverrides.js";
 import { assertNotKilled, getKillSwitch, KillSwitchActive, setKillSwitch } from "../src/safety/killswitch.js";
 import { SpendCapExceeded, SpendTracker } from "../src/safety/spend.js";
 import { assertCanPublish, PostCapReached, postsInLast24h } from "../src/safety/postingCaps.js";
@@ -81,6 +82,52 @@ describe("spend caps", () => {
     const summary = await t.summary();
     const render = summary.find((s) => s.provider === "render")!;
     expect(render).toMatchObject({ dailySpent: 1, dailyCap: 1, capped: true });
+  });
+});
+
+describe("live cap overrides (the autonomy agent's own cap moves)", () => {
+  const cfg = testConfig(); // limits.json: maxPostsPerDay 9, anthropic $3/day $60/month
+
+  it("defaults to the static ceiling with no override set", async () => {
+    expect(await liveMaxPostsPerDay(db, cfg)).toBe(9);
+    expect(await liveSpendCap(db, cfg.limits, "anthropic")).toEqual({ daily: 3, monthly: 60 });
+  });
+
+  it("an override can move the live cap, but never past the ceiling even if asked to", async () => {
+    const sent: any[] = [];
+    const alerter = { send: async (a: any) => void sent.push(a) } as unknown as Alerter;
+    await setCapOverride(db, alerter, cfg, { maxPostsPerDay: 7 }, "7-day average stayed low");
+    expect(await liveMaxPostsPerDay(db, cfg)).toBe(7);
+
+    await setCapOverride(db, alerter, cfg, { maxPostsPerDay: 500 }, "pretend a bug asked for way more than the ceiling");
+    expect(await liveMaxPostsPerDay(db, cfg)).toBe(9); // clamped to the ceiling from limits.json, not 500
+
+    await setCapOverride(db, alerter, cfg, { provider: "anthropic", daily: 2.5 }, "spend stayed low");
+    expect(await liveSpendCap(db, cfg.limits, "anthropic")).toEqual({ daily: 2.5, monthly: 60 });
+    await setCapOverride(db, alerter, cfg, { provider: "anthropic", daily: 50 }, "pretend a bug asked for way more than the ceiling");
+    expect((await liveSpendCap(db, cfg.limits, "anthropic")).daily).toBe(3); // clamped to limits.json's $3 ceiling
+
+    expect(sent).toHaveLength(4);
+    expect(sent.every((a) => a.severity === "info")).toBe(true); // every cap change is reported, never silent
+  });
+
+  it("SpendTracker.guard() and assertCanPublish both honour a live override", async () => {
+    await setCapOverride(db, undefined, cfg, { provider: "anthropic", daily: 1 }, "test");
+    const t = new SpendTracker(db, cfg.limits, cfg.pricing, () => new Date("2026-10-09T12:00:00Z"));
+    await t.record({ provider: "anthropic", category: "llm", usd: 0.9 });
+    await expect(t.guard("anthropic", 0.2)).rejects.toMatchObject({ cap: 1 }); // would have passed against the $3 ceiling
+
+    await setCapOverride(db, undefined, cfg, { maxPostsPerDay: 1 }, "test");
+    await db.query(`INSERT INTO publications (id, content_id, platform, status, published_at, dry_run) VALUES (gen_random_uuid(), gen_random_uuid(), 'tiktok', 'published', now(), false)`);
+    await expect(assertCanPublish(db, testConfig({ DRY_RUN: "false" }), "youtube")).rejects.toMatchObject({ scope: "global", cap: 1 });
+  });
+
+  it("getCapOverrides reflects the latest patch, keeping other providers untouched", async () => {
+    await setCapOverride(db, undefined, cfg, { provider: "anthropic", daily: 2 }, "a");
+    await setCapOverride(db, undefined, cfg, { provider: "openai", daily: 0.5 }, "b");
+    const o = await getCapOverrides(db);
+    expect(o.providers?.anthropic?.daily).toBe(2);
+    expect(o.providers?.openai?.daily).toBe(0.5);
   });
 });
 

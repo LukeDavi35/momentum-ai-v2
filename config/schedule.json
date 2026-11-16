@@ -11,6 +11,7 @@
   "monitor": { "everyMinutes": 5 },
   "analytics": { "checkpoints": ["1h", "24h", "7d"] },
   "learning": { "weeklyCron": "0 6 * * 1" },
+  "autonomy": { "everyMinutes": 60 },
   "compilations": {
     "daily":  { "enabled": true, "cron": "30 16 * * *", "label": "Today's sports highlights",        "lookbackHours": 24,  "maxStories": 4, "footage": { "enabled": true, "providers": ["library", "pexels", "commons"], "minClipSeconds": 3, "licenses": ["cc0", "public_domain", "cc_by", "pexels", "owned"], "reuseCooldownDays": 7 } },
     "weekly": { "enabled": true, "cron": "0 9 * * 0",   "label": "This week's biggest sports moments", "lookbackHours": 168, "maxStories": 6, "footage": { "enabled": true, "providers": ["library", "pexels", "commons"], "minClipSeconds": 3, "licenses": ["cc0", "public_domain", "cc_by", "pexels", "owned"], "reuseCooldownDays": 7 } }

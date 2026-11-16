@@ -276,14 +276,34 @@ describe("runQa gate", () => {
     expect(enqueued.at(-1)).toMatchObject({ queue: "voice", data: { regen: 1 } });
   });
 
-  it("holds the piece (never publishes) once the regeneration budget is spent, and alerts", async () => {
+  it("the autonomy agent gets one bonus attempt at the regeneration budget before holding, then holds on the next failure", async () => {
     const { deps, db, id, enqueued } = await renderedContent({ regen: 2, runner: fakeRunner({ loudI: -30 }) });
+    const originalRender = (await getContent(db, id))!.render;
+
+    // bonus attempt: still at the budget, but not held yet - and marked so it can't recurse
+    expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("rerendering");
+    const afterBonus = (await getContent(db, id))!;
+    expect(afterBonus).toMatchObject({ status: "voiced", regenCount: 3, render: null });
+    expect((afterBonus.idea as any).autonomyExtraAttemptUsed).toBe(true);
+    expect((await db.query(`SELECT 1 FROM alerts_log WHERE key = $1`, [`held:${id}`])).rowCount).toBe(0);
+
+    // the bonus attempt didn't fix it: re-render the same way, then QA fails again and now holds
+    await transition(db, id, "voiced", "rendered", { render: originalRender }, { stage: "t" });
     expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("held");
     const row = (await getContent(db, id))!;
     expect(row.status).toBe("held");
-    expect(row.error).toMatch(/QA failed after 3 attempts/);
+    expect(row.error).toMatch(/QA failed after 4 attempts/);
     expect(enqueued.filter((e) => e.queue === "publish")).toEqual([]);
     expect((await db.query(`SELECT 1 FROM alerts_log WHERE key = $1`, [`held:${id}`])).rowCount).toBe(1);
+  });
+
+  it("a sensitive topic is held immediately, with no bonus attempt", async () => {
+    const { deps, db, id } = await renderedContent({ regen: 2, mutateScript: (s) => ({ ...s, title: "Player dies after collapsing on pitch" }) });
+    expect(await runQa(deps, { contentId: id, correlationId: CID })).toBe("held");
+    const row = (await getContent(db, id))!;
+    expect(row.status).toBe("held");
+    expect(row.error).toMatch(/sensitive topic/);
+    expect((row.idea as any).autonomyExtraAttemptUsed).toBeFalsy();
   });
 
   it("fails when the independent reviewer scores any dimension under the threshold, with its feedback", async () => {

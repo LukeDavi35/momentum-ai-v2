@@ -147,6 +147,8 @@ export const scheduleSchema = z.object({
   monitor: z.object({ everyMinutes: z.number().positive() }),
   analytics: z.object({ checkpoints: z.array(z.enum(["1h", "24h", "7d"])).min(1) }),
   learning: z.object({ weeklyCron: z.string() }),
+  /** How often the autonomy agent (src/autonomy/agent.ts) checks whether to raise a cap or adjust the learning mode - it only actually changes anything at most once a week regardless of this cadence. */
+  autonomy: z.object({ everyMinutes: z.number().positive() }).default({ everyMinutes: 60 }),
   compilations: compilationsSchema,
 });
 export type ScheduleConfig = z.infer<typeof scheduleSchema>;

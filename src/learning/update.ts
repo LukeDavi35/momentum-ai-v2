@@ -29,6 +29,13 @@ export interface UpdateResult {
 }
 
 const DEFAULTS = { minRows: 6, eta: 0.15, maxStep: 0.25, shrinkK: 5, bounds: [0.4, 2.5] as [number, number] };
+/**
+ * Wider, faster-reacting bounds the autonomy agent (src/autonomy/agent.ts) can switch on once a venture's
+ * results have been stable for a while, and switches back off itself at the first sign of a regression
+ * (see `src/autonomy/agent.ts`'s `evaluateFastAdapt`). The append-only `weight_versions` history and
+ * `npm run rollback` are untouched either way, so a bad week here is always one command from reverting.
+ */
+export const FAST_ADAPT: Required<UpdateOptions> = { minRows: 3, eta: 0.25, maxStep: 0.45, shrinkK: 3, bounds: [0.3, 3.0] };
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 

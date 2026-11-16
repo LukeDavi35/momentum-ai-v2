@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PILLARS, type AppConfig, type Pillar } from "../config/index.js";
-import { createContent } from "../db/content.js";
+import { createContent, type Content } from "../db/content.js";
 import { alternateQueries } from "../footage/query.js";
 import { findFootage } from "../footage/search.js";
 import { recordUse } from "../footage/store.js";
@@ -61,6 +61,42 @@ export async function editorPick(deps: Deps, candidates: PickedStory[], want: nu
 export function profileFootageLicenses(cfg: AppConfig, idea: Record<string, any> | null | undefined): readonly string[] | undefined {
   const profileId = idea?.highlightsProfile as string | undefined;
   return (profileId && cfg.schedule.compilations[profileId]?.footage.licenses) || undefined;
+}
+
+/**
+ * The one case the autonomy agent's QA-hold remediation (src/qa/gate.ts) can fix with something genuinely
+ * different rather than a plain retry: a daily_highlights item held over its footage (missing, or under a
+ * licence the profile no longer allows). Re-searches just the offending stories' footage — excluding what
+ * was already tried — and returns an updated idea for the caller to patch onto the content row before
+ * re-rendering. Returns null if this content isn't a compilation, or its profile no longer exists.
+ */
+export async function refreshCompilationFootage(deps: Deps, content: Content): Promise<HighlightsIdea | null> {
+  const { cfg, db, log } = deps;
+  const idea = content.idea as Record<string, any>;
+  const highlights = idea?.highlights as HighlightsIdea | undefined;
+  const profileId = idea?.highlightsProfile as string | undefined;
+  const hc = profileId ? cfg.schedule.compilations[profileId] : undefined;
+  if (!highlights || !hc) return null;
+
+  const chosen = new Set(highlights.stories.filter((s) => s.footage).map((s) => clipKey(s.footage!)));
+  const stories: HighlightStory[] = [];
+  let changed = false;
+  for (const s of highlights.stories) {
+    if (s.footage && hc.footage.licenses.includes(s.footage.license)) {
+      stories.push(s);
+      continue;
+    }
+    if (s.footage) chosen.delete(clipKey(s.footage));
+    const footage = await findFootage({ cfg, db, log, fetchImpl: deps.fetchImpl, runner: deps.runner, now: deps.now }, hc.footage, [s.query, ...alternateQueries(s.query)], chosen);
+    if (footage) {
+      chosen.add(clipKey(footage));
+      await recordUse(db, footage, content.id, deps.now());
+    }
+    changed = changed || Boolean(s.footage) !== Boolean(footage) || footage?.pageUrl !== s.footage?.pageUrl;
+    stories.push({ ...s, footage });
+  }
+  if (!changed) return null; // nothing to try that's actually different
+  return { ...highlights, stories };
 }
 
 /** The local calendar day in the schedule timezone, "YYYY-MM-DD". */

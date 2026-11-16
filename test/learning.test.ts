@@ -8,7 +8,8 @@ import { defaultWeights, getCurrentWeights, listWeightVersions, rollbackWeights 
 import { runWeeklyLearning } from "../src/learning/agent.js";
 import { groupMean, performanceScore, scoreRows, shrink, topPerformingItems, type PerfRow } from "../src/learning/performance.js";
 import { renderDigest, renderWeeklyReport } from "../src/learning/report.js";
-import { computeNewWeights, pearson } from "../src/learning/update.js";
+import { computeNewWeights, pearson, FAST_ADAPT } from "../src/learning/update.js";
+import { getFastAdapt, setFastAdapt } from "../src/autonomy/fastAdapt.js";
 import type { Publisher } from "../src/publish/types.js";
 import { makeDeps } from "./helpers.js";
 
@@ -96,6 +97,21 @@ describe("computeNewWeights", () => {
     expect(r.weights.scoring.novelty).toBeLessThan(W.scoring.novelty);
     expect(Object.values(r.weights.scoring).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 2);
   });
+
+  it("FAST_ADAPT: the autonomy agent's wider mode moves further per step and needs fewer rows", () => {
+    expect(computeNewWeights(W, mk(4, {}, 2), FAST_ADAPT).skipped).toBeUndefined(); // 4 < default minRows(6) but >= FAST_ADAPT's 3
+    expect(computeNewWeights(W, mk(3, {}, 2), FAST_ADAPT).skipped).toBeUndefined();
+    expect(computeNewWeights(W, mk(2, {}, 2), FAST_ADAPT).skipped).toMatch(/need ≥ 3/);
+
+    const rows = [...mk(10, { template: "stat_spotlight", pillar: "track_and_field" }, 2.5), ...mk(10, { template: "quick_explainer", pillar: "fitness" }, -2.5)];
+    const normal = computeNewWeights(W, rows).weights.templates.stat_spotlight;
+    const fast = computeNewWeights(W, rows, FAST_ADAPT).weights.templates.stat_spotlight;
+    expect(fast).toBeGreaterThan(normal); // same data, bigger move
+    for (const v of Object.values(computeNewWeights(W, rows, FAST_ADAPT).weights.templates)) {
+      expect(v).toBeGreaterThanOrEqual(FAST_ADAPT.bounds[0] * 0.7);
+      expect(v).toBeLessThanOrEqual(FAST_ADAPT.bounds[1]);
+    }
+  });
 });
 
 // ------------------------------------------------------------------ analytics agent + weekly job
@@ -175,6 +191,17 @@ describe("runWeeklyLearning", () => {
     expect(versions[0]!.reason).toMatch(/weekly learning from 12 posts/);
     await rollbackWeights(ctx.db, 1);
     expect((await getCurrentWeights(ctx.db)).weights.templates.news_flash).toBe(defaultWeights().templates.news_flash);
+  });
+
+  it("uses the autonomy agent's fast-adapt bounds once it's switched on, and tags the saved reason", async () => {
+    const ctx = await publishedContent({ dry: false });
+    await seed(ctx, 12);
+    await setFastAdapt(ctx.db, undefined, true, "test");
+    const dir = mkdtempSync(join(tmpdir(), "rep-"));
+    const r = await runWeeklyLearning(ctx.deps, { reportDir: dir });
+    expect(r.fastAdapt).toBe(true);
+    const versions = await listWeightVersions(ctx.db);
+    expect(versions[0]!.reason).toMatch(/\[fast-adapt\]/);
   });
 
   it("DRY RUN: computes and reports on synthetic data but NEVER saves weights", async () => {

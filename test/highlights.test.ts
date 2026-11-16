@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMPILATION_TEMPLATES } from "../src/config/index.js";
 import { getContent } from "../src/db/content.js";
-import { candidateCount, editorPick, profileFootageLicenses, runHighlights, localDay } from "../src/highlights/agent.js";
+import { candidateCount, editorPick, profileFootageLicenses, refreshCompilationFootage, runHighlights, localDay } from "../src/highlights/agent.js";
 import { NOT_A_NEWS_STORY, selectStories, type PickedStory } from "../src/highlights/select.js";
 import { planCompilation } from "../src/highlights/segments.js";
 import type { HighlightStory } from "../src/highlights/types.js";
@@ -317,6 +317,41 @@ describe("runHighlights", () => {
   it("uses the schedule timezone for 'today'", () => {
     expect(localDay(new Date("2026-11-12T23:30:00Z"), "Europe/London")).toBe("2026-11-12");
     expect(localDay(new Date("2026-06-12T23:30:00Z"), "Europe/London")).toBe("2026-06-13"); // BST
+  });
+});
+
+describe("refreshCompilationFootage (the autonomy agent's bonus attempt for a footage/licence QA hold)", () => {
+  it("returns null when every clip is still under an allowed licence - nothing different to try", async () => {
+    const { deps, db } = await setup();
+    const r = await runHighlights(deps, { correlationId: "x" });
+    const row = (await getContent(db, r.created!))!;
+    expect(await refreshCompilationFootage(deps, row)).toBeNull();
+  });
+
+  it("re-searches just the stories whose licence the profile no longer allows, and records the new clip's use", async () => {
+    const { deps, db } = await setup();
+    const r = await runHighlights(deps, { correlationId: "x" });
+    const row = (await getContent(db, r.created!))!;
+    // tighten the profile after the fact, as if a human had edited config/schedule.json - every existing "pexels"-licensed clip is now disallowed
+    deps.cfg.schedule.compilations.daily!.footage.licenses = ["cc0", "public_domain"];
+    const refreshed = await refreshCompilationFootage(deps, row);
+    expect(refreshed).not.toBeNull();
+    // pexels is the only configured provider in this fixture and it only ever returns "pexels"-licensed clips, so there is nothing allowed to find
+    expect(refreshed!.stories.every((s) => s.footage === null)).toBe(true);
+    expect(refreshed!.stories).toHaveLength(row.idea.highlights.stories.length);
+  });
+
+  it("returns null for content that isn't a compilation, or whose profile no longer exists", async () => {
+    const { deps, db } = await setup();
+    const plain = await db.query<{ id: string }>(
+      `INSERT INTO content (id, correlation_id, status, pillar, template, topic, hook_style, idea, source_item_ids) VALUES (gen_random_uuid(), gen_random_uuid(), 'idea', 'running','news_flash','t','stat','{}'::jsonb,'[]'::jsonb) RETURNING id`,
+    );
+    expect(await refreshCompilationFootage(deps, (await getContent(db, plain.rows[0]!.id))!)).toBeNull();
+
+    const r = await runHighlights(deps, { correlationId: "x" });
+    const row = (await getContent(db, r.created!))!;
+    delete deps.cfg.schedule.compilations.daily;
+    expect(await refreshCompilationFootage(deps, row)).toBeNull();
   });
 });
 

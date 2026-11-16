@@ -111,6 +111,13 @@ Every transition is `UPDATE … WHERE id = $1 AND status = $from` inside a trans
 ### 1.3b Compilation generator (daily + weekly highlights)
 One scheduled job per entry of `config/schedule.json → compilations` (a map of named profiles, each with its own cron/lookback/story-count/label/footage) on the `ideate` queue (`kind: "highlights", profile: "<id>"`) feeds the *same* pipeline: `src/highlights/agent.ts` clusters that profile's lookback window of news, drops sensitive clusters, picks the top stories (`select.ts`: corroborated-first, columns/previews skipped, one sport each first), has a small LLM editor choose among the top candidates (`editorPick`, deterministic fallback on any failure), asks `src/footage/` for a licensed clip per story (library → Pexels → Wikimedia Commons; licence allow-list in `licenses.ts`; a rate-limited provider is abandoned after one candidate, not hammered), and creates one `daily_highlights` content row (deduped per profile per local day via `idea->>'highlightsProfile'`). The script stage writes one beat per story (with the profile's `label` injected as the required on-screen headline) and `planCompilation` records which beats belong to which story from their citations. The FFmpeg renderer builds a montage per story span (`src/render/montage.ts`) and then runs the shared `assemble()` (loudness, captions, bar, cover). QA adds `checkCompilation` (≥ 2 stories, accepted licences for *that content's own profile* via `profileFootageLicenses`, every clip credited and the footage labelled illustrative in each post). From `qa_passed` onward a compilation is indistinguishable from any other piece — same scheduling, posting caps and kill switch — so "autonomous posting" is not a separate feature to wire up per profile.
 
+### 1.3c Autonomy agent
+`src/autonomy/agent.ts`, a maintenance job (hourly; `src/queue/scheduler.ts`'s `autonomy-agent`). Two things, both gated by the same health check (`healthy()`: no spend cap hit in 7 days, and the 7-day QA hold-rate hasn't risen more than 50% over its 14–7-day-ago baseline — `null` while there isn't 5+ QA-concluded items in either window, which also blocks action):
+1. **Live cap overrides** (`src/safety/capOverrides.ts`) — a settings-table row read on every `assertCanPublish`/`SpendTracker.guard()` call, so it takes effect immediately (unlike `AppConfig`, loaded once at boot). `config/limits.json`/`MAX_POSTS_PER_DAY` are the ceiling the override can never exceed. When healthy and outside a 7-day cooldown, a cap whose trailing 7-day average use is under 70% of it moves up 10%, clamped to the ceiling.
+2. **Fast-adapt learning** (`FAST_ADAPT` in `src/learning/update.ts`) — the same health check switches a wider bound set (±45%/update, min 3 rows, [0.3, 3.0]) on or off for the next `runWeeklyLearning` run (`src/autonomy/fastAdapt.ts`), in place of the conservative default (±25%/update, min 6, [0.4, 2.5]).
+
+Separately, `handleFailure` in `src/qa/gate.ts` gives a QA-held item one bonus attempt before it actually holds: a footage/licence failure re-searches footage (`refreshCompilationFootage`); anything else gets one extra regeneration. Marked via `idea.autonomyExtraAttemptUsed` so it can't recurse; a sensitive-topic hold skips this and holds immediately, as before. None of this writes to the kill switch or an OAuth token — every change goes out through the existing `Alerter` at `info` severity instead.
+
 ### 1.4 Layout
 ```
 src/config      zod-validated env + JSON configs          src/publish     publishers, tokens, OAuth, slot planner, metadata
@@ -122,7 +129,8 @@ src/llm         Anthropic provider, labelled stub, client  src/media       ffmpe
 src/ingest      RSS/Atom, Trends, Reddit, store            dashboard/      React (Vite) control room
 src/footage     licensed-clip providers, licence rules     src/highlights  daily story selection, segment planning
 src/ideate      clustering, scoring, weights, embeddings   scripts/        dryrun, release, rollback
-src/script      writer, templates, types                   test/           244 tests (see §2)
+src/autonomy    cap overrides, fast-adapt toggle, agent    test/           244 tests (see §2)
+src/script      writer, templates, types
 src/voice       ElevenLabs, OpenAI, dev voice, alignment   config/         schedule, pillars, qa, limits, pricing, sources
 src/render      captions, visuals, ffmpeg + Remotion renderers, shared assembly (adaptive audio levelling)
 remotion/       React compositions (Momentum.tsx) bundled by @remotion/bundler

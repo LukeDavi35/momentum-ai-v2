@@ -49,6 +49,27 @@ function uniqueTags(tags: string[], max: number): string[] {
   return out;
 }
 
+/**
+ * [LANG] lines for every configured translation that fits, appended after the English caption -
+ * never the other way around. Stops adding languages once the next one would overflow `budget`
+ * rather than truncating a translation mid-sentence; the English content and the AI-disclosure
+ * line are built first and are never touched by this. Not called for tiktok/x (see buildPlatformMetadata).
+ */
+function translationLines(script: ScriptDoc, key: "instagram" | "youtube", budget: number): string {
+  if (!script.translations) return "";
+  let used = 0;
+  const lines: string[] = [];
+  for (const [lang, t] of Object.entries(script.translations)) {
+    const text = t[key]?.trim();
+    if (!text) continue;
+    const line = `\n\n[${lang.toUpperCase()}] ${text}`;
+    if (used + line.length > budget) break;
+    lines.push(line);
+    used += line.length;
+  }
+  return lines.join("");
+}
+
 export function sourceCreditFor(script: ScriptDoc, sources: SourceItem[]): { credit: string | null; urls: string[] } {
   const used = new Set(script.claims.map((c) => c.sourceItemId).filter((x): x is string => !!x));
   const cited = sources.filter((s) => used.has(s.id) && CITABLE_KINDS.includes(s.kind));
@@ -86,14 +107,16 @@ export function buildPlatformMetadata(platform: Platform, content: Pick<Content,
     // one - Meta's Graph API treats IG and FB Page caption/hashtag conventions near-identically.
     const limits = platform === "facebook" ? LIMITS.facebook : LIMITS.instagram;
     const tags = uniqueTags(v.instagram.hashtags, limits.hashtags);
-    const caption = [v.instagram.caption.trim(), "", tags.map((t) => `#${t}`).join(" "), credit, AI_DISCLOSURE_LINE].filter((x) => x !== null && x !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
+    const base = [v.instagram.caption.trim(), "", tags.map((t) => `#${t}`).join(" "), credit, AI_DISCLOSURE_LINE].filter((x) => x !== null && x !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
+    const caption = base + translationLines(script, "instagram", limits.caption - base.length);
     return { platform, title: content.topic.slice(0, 90), caption, hashtags: tags, aiDisclosure, sourceCredit: credit };
   }
   const tags = uniqueTags(v.youtube.hashtags, LIMITS.youtube.hashtags);
   const title = v.youtube.title.trim().slice(0, LIMITS.youtube.title);
-  const description = [v.youtube.description.trim(), "", credit, ...urls.slice(0, 3), "", AI_DISCLOSURE_LINE, tags.map((t) => `#${t}`).join(" ")]
+  const base = [v.youtube.description.trim(), "", credit, ...urls.slice(0, 3), "", AI_DISCLOSURE_LINE, tags.map((t) => `#${t}`).join(" ")]
     .filter((x) => x !== null && x !== undefined)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
+  const description = base + translationLines(script, "youtube", LIMITS.youtube.description - base.length);
   return { platform, title, caption: description, hashtags: tags, aiDisclosure, sourceCredit: credit };
 }

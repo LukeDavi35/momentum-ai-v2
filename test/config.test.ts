@@ -19,4 +19,8 @@ describe("config", () => {
     expect(cfg.schedule.comments.dailyCap).toBeGreaterThan(0);
     for (const p of Object.values(cfg.schedule.platforms)) expect(p.replies).toBe(false);
   });
+
+  it("captions.languages defaults to empty (translations off until the owner lists a language)", () => {
+    expect(testConfig().schedule.captions.languages).toEqual([]);
+  });
 });

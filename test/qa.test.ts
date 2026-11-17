@@ -8,7 +8,7 @@ import type { RawItem } from "../src/ingest/types.js";
 import { LlmClient } from "../src/llm/client.js";
 import { StubProvider } from "../src/llm/stub.js";
 import type { Runner } from "../src/media/exec.js";
-import { buildPlatformMetadata } from "../src/publish/metadata.js";
+import { AI_DISCLOSURE_LINE, buildPlatformMetadata, LIMITS } from "../src/publish/metadata.js";
 import { runQa } from "../src/qa/gate.js";
 import { checkPolicy, TEXT_RULES } from "../src/qa/policy.js";
 import { belowThreshold } from "../src/qa/reviewer.js";
@@ -103,6 +103,26 @@ describe("metadata + policy", () => {
     expect(checkPolicy(script, meta, five).passed).toBe(true);
     const tooLong = { ...meta, x: { ...x, caption: "y".repeat(281) } };
     expect(checkPolicy(script, tooLong, five).violations.some((v) => v.where === "metadata:x" && v.rule === "limits")).toBe(true);
+  });
+
+  it("appends translations to instagram/facebook/youtube but never tiktok/x, and drops one that would overflow the limit", () => {
+    const translated = { ...script, translations: { es: { instagram: "Hola mundo", youtube: "Hola mundo youtube" } } };
+    const ig = buildPlatformMetadata("instagram", content, translated, sources);
+    const fb = buildPlatformMetadata("facebook", content, translated, sources);
+    const yt = buildPlatformMetadata("youtube", content, translated, sources);
+    const tt = buildPlatformMetadata("tiktok", content, translated, sources);
+    const x = buildPlatformMetadata("x", content, translated, sources);
+    expect(ig.caption).toContain("[ES] Hola mundo");
+    expect(fb.caption).toContain("[ES] Hola mundo");
+    expect(yt.caption).toContain("[ES] Hola mundo youtube");
+    expect(tt.caption).not.toContain("[ES]");
+    expect(x.caption).not.toContain("[ES]");
+
+    const oversized = { ...script, translations: { es: { instagram: "x".repeat(3000), youtube: "x".repeat(3000) } } };
+    const igOversized = buildPlatformMetadata("instagram", content, oversized, sources);
+    expect(igOversized.caption).not.toContain("[ES]");
+    expect(igOversized.caption).toContain(AI_DISCLOSURE_LINE); // the English content and disclosure survive
+    expect(igOversized.caption.length).toBeLessThanOrEqual(LIMITS.instagram.caption);
   });
 
   it("passes clean content and fails when the AI disclosure is missing or a limit is exceeded", () => {

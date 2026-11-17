@@ -55,6 +55,8 @@ export interface ScriptDoc extends Omit<ScriptWriterOutput, "claims"> {
   generator: "live" | "stub";
   /** daily_highlights only: which beats belong to which story, and the licensed clip behind each. */
   compilation?: Compilation;
+  /** Extra-language captions (config/schedule.json's captions.languages), keyed by ISO code. Only built when at least one language is configured. */
+  translations?: Record<string, { instagram: string; youtube: string }>;
 }
 
 export const WORDS_PER_SECOND = 2.6; // ~155 wpm, typical TTS pace

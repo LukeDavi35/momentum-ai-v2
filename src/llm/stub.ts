@@ -38,6 +38,8 @@ export class StubProvider implements LlmProvider {
         return { summary: "Stub summary: see the tables below for the numbers." };
       case "comment_triage":
         return stubCommentTriage(req.input as { text: string });
+      case "script.translate":
+        return stubTranslate(req.input as { instagram: string; youtube: string; languages: string[] });
       default:
         throw new Error(`StubProvider has no handler for task "${req.task}"`);
     }
@@ -248,6 +250,13 @@ function stubReview(input: { hookWords: number; unverifiedClaims: number; flagge
 }
 
 // ------------------------------------------------------------------ engagement
+
+function stubTranslate(input: { instagram: string; youtube: string; languages: string[] }) {
+  // Deterministic, obviously-not-real-translation stand-in - tagged so a demo can never pass for genuine output.
+  const translations: Record<string, { instagram: string; youtube: string }> = {};
+  for (const lang of input.languages) translations[lang] = { instagram: `[STUB ${lang}] ${input.instagram}`, youtube: `[STUB ${lang}] ${input.youtube}` };
+  return { translations };
+}
 
 function stubCommentTriage(input: { text: string }) {
   const t = input.text.toLowerCase();

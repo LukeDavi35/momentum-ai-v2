@@ -9,6 +9,7 @@ import type { Deps, JobData } from "../queue/types.js";
 import { planCompilation } from "../highlights/segments.js";
 import type { HighlightsIdea } from "../highlights/types.js";
 import { PLATFORM_NOTES, TEMPLATE_SPECS } from "./templates.js";
+import { translateCaptions } from "./translate.js";
 import { estimateDurationS, narrationOf, scriptWriterSchema, type Claim, type ScriptDoc } from "./types.js";
 
 const MAX_DURATION_S = 55;
@@ -166,6 +167,15 @@ export async function runScript(deps: Deps, data: JobData): Promise<ScriptOutcom
     await transition(db, content.id, "idea", "failed", { error: `Script could not be grounded in sources after ${regen + 1} attempts`, failed_stage: "script" }, { stage: "script", detail: { reasons: doc.removed } });
     await deps.alerter.send({ key: `script_ungroundable:${content.id}`, severity: "warning", title: "Idea dropped: could not be grounded in sources", body: `${content.topic}\n${reasons}` });
     return "failed";
+  }
+
+  const languages = cfg.schedule.captions.languages;
+  if (languages.length > 0) {
+    try {
+      doc.translations = await translateCaptions(llm, doc, languages);
+    } catch (e) {
+      log.warn({ contentId: content.id, err: (e as Error).message }, "caption translation failed; posting English-only");
+    }
   }
 
   const moved = await transition(

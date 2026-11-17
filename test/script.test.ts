@@ -83,6 +83,23 @@ describe("runScript with the stub LLM (real fact-check path)", () => {
     expect(script.claims.every((c: any) => c.sourceItemId === null)).toBe(true);
     expect(narrationOf(script)).toMatch(/not personal advice/i);
   });
+
+  it("adds translations only when captions.languages is configured, never otherwise", async () => {
+    const { deps, db, content } = await setup();
+    expect(await runScript(deps, { contentId: content.id, correlationId: CID, regen: 0 })).toBe("scripted");
+    const untranslated = ((await getContent(db, content.id))!.script as any);
+    expect(untranslated.translations).toBeUndefined();
+  });
+
+  it("translates the instagram and youtube variants into every configured language", async () => {
+    const { deps, db, content } = await setup();
+    deps.cfg.schedule.captions.languages = ["es", "fr"];
+    expect(await runScript(deps, { contentId: content.id, correlationId: CID, regen: 0 })).toBe("scripted");
+    const script = ((await getContent(db, content.id))!.script as any);
+    expect(Object.keys(script.translations)).toEqual(["es", "fr"]);
+    expect(script.translations.es.instagram).toContain(script.variants.instagram.caption);
+    expect(script.translations.fr.youtube).toContain(script.variants.youtube.description);
+  });
 });
 
 describe("runScript fact-check pre-filter", () => {

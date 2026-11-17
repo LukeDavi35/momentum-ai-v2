@@ -180,6 +180,8 @@ export const scheduleSchema = z.object({
       lookbackDays: z.number().positive(),
     })
     .default({ everyMinutes: 15, dailyCap: 40, perPostCap: 25, perAuthorDaily: 2, minGapSeconds: 90, delayMinutesMin: 4, delayMinutesMax: 30, windowHours: 48, lookbackDays: 7 }),
+  /** Extra caption languages (ISO codes, e.g. "es","fr"). Empty = off - no translation call is made and nothing changes in the posted captions. */
+  captions: z.object({ languages: z.array(z.string().min(1)) }).default({ languages: [] }),
 });
 export type ScheduleConfig = z.infer<typeof scheduleSchema>;
 

@@ -88,17 +88,17 @@ describe("scoring + rotation", () => {
   const cand = (pillar: any, total: number): Candidate => ({ cluster: { id: pillar + total, pillar, evergreen: true, velocity: 0, items: [], citable: [] }, template: "quick_explainer", topic: "t", angle: "a", hookStyle: "stat", templateFit: 5, embedding: { model: "m", vector: [] }, scores: { velocity: 0, templateFit: 0, novelty: 0, engagement: 0, total } });
   it("rotation favours an under-represented pillar over a slightly higher-scoring over-represented one", () => {
     const target = targetPillarShares(testConfig(), w);
-    const recent = { running: 10, fitness: 0, track_and_field: 0, sports_news: 0, football: 0 };
+    const recent = { running: 10, fitness: 0, track_and_field: 0, sports_news: 0, football: 0, basketball: 0 };
     const picked = selectWithRotation([cand("running", 0.62), cand("fitness", 0.55)], 1, recent, target);
     expect(picked[0]!.cluster.pillar).toBe("fitness");
   });
   it("still picks the best candidate when pillars are balanced, and never returns more than asked", () => {
     const target = targetPillarShares(testConfig(), w);
-    const zero = { running: 0, fitness: 0, track_and_field: 0, sports_news: 0, football: 0 };
+    const zero = { running: 0, fitness: 0, track_and_field: 0, sports_news: 0, football: 0, basketball: 0 };
     const picked = selectWithRotation([cand("running", 0.4), cand("running", 0.9), cand("fitness", 0.3)], 2, zero, target);
     expect(picked).toHaveLength(2);
     expect(picked.map((p) => p.scores.total)).toContain(0.9);
-    expect(targetPillarShares(testConfig(), w).running).toBeCloseTo(0.25, 5);
+    expect(targetPillarShares(testConfig(), w).running).toBeCloseTo(0.22, 5);
     expect(PILLARS.reduce((s, p) => s + targetPillarShares(testConfig(), w)[p], 0)).toBeCloseTo(1, 10);
   });
 });

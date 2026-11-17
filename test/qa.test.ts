@@ -79,10 +79,30 @@ describe("metadata + policy", () => {
     expect(fb.caption).toBe(ig.caption);
     expect(fb.hashtags).toEqual(ig.hashtags);
     expect(fb.aiDisclosure.nativeFlag).toBe("none");
+    const four = ["tiktok", "instagram", "youtube", "facebook"] as const;
     const meta = { tiktok: buildPlatformMetadata("tiktok", content, script, sources), instagram: ig, youtube: buildPlatformMetadata("youtube", content, script, sources), facebook: fb };
-    expect(checkPolicy(script, meta).passed).toBe(true);
+    expect(checkPolicy(script, meta, four).passed).toBe(true);
     const tooManyTags = { ...meta, facebook: { ...fb, hashtags: Array.from({ length: 31 }, (_, i) => `t${i}`) } };
-    expect(checkPolicy(script, tooManyTags).violations.some((v) => v.where === "metadata:facebook" && v.rule === "limits")).toBe(true);
+    expect(checkPolicy(script, tooManyTags, four).violations.some((v) => v.where === "metadata:facebook" && v.rule === "limits")).toBe(true);
+  });
+
+  it("x reuses the tiktok variant rather than a 5th writer-LLM variant, and gets tiktok-style limits", () => {
+    const tt = buildPlatformMetadata("tiktok", content, script, sources);
+    const x = buildPlatformMetadata("x", content, script, sources);
+    expect(x.caption).toBe(tt.caption);
+    expect(x.hashtags).toEqual(tt.hashtags);
+    expect(x.aiDisclosure.nativeFlag).toBe("none");
+    const five = ["tiktok", "instagram", "youtube", "facebook", "x"] as const;
+    const meta = {
+      tiktok: tt,
+      instagram: buildPlatformMetadata("instagram", content, script, sources),
+      youtube: buildPlatformMetadata("youtube", content, script, sources),
+      facebook: buildPlatformMetadata("facebook", content, script, sources),
+      x,
+    };
+    expect(checkPolicy(script, meta, five).passed).toBe(true);
+    const tooLong = { ...meta, x: { ...x, caption: "y".repeat(281) } };
+    expect(checkPolicy(script, tooLong, five).violations.some((v) => v.where === "metadata:x" && v.rule === "limits")).toBe(true);
   });
 
   it("passes clean content and fails when the AI disclosure is missing or a limit is exceeded", () => {

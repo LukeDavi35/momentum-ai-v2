@@ -36,6 +36,8 @@ export class StubProvider implements LlmProvider {
       }
       case "learning.report":
         return { summary: "Stub summary: see the tables below for the numbers." };
+      case "comment_triage":
+        return stubCommentTriage(req.input as { text: string });
       default:
         throw new Error(`StubProvider has no handler for task "${req.task}"`);
     }
@@ -107,6 +109,7 @@ const HASHTAGS: Record<string, string[]> = {
   track_and_field: ["trackandfield", "athletics", "sprint", "worldathletics"],
   sports_news: ["sports", "sportsnews", "breakingnews", "athletes"],
   football: ["football", "soccer", "premierleague", "footballnews"],
+  basketball: ["basketball", "nba", "hoops", "basketballnews"],
 };
 
 /** Compilation script: hook, one beat per story (its lead headline, cited to that story's first factual source), sign-off. */
@@ -242,4 +245,17 @@ function stubReview(input: { hookWords: number; unverifiedClaims: number; flagge
   const clarity = input.beats >= 3 ? 8 : 5;
   if (clarity < 7) feedback.push("Give the piece at least three clear beats.");
   return { scores: { accuracy, brand_voice: 8, hook_strength: hook, clarity, policy_safety: policy }, feedback };
+}
+
+// ------------------------------------------------------------------ engagement
+
+function stubCommentTriage(input: { text: string }) {
+  const t = input.text.toLowerCase();
+  if (/\b(are you (an )?ai|is this ai|real person|bot\?)\b/.test(t)) {
+    return { category: "ai_question", reply: "Yep, this account is AI-assisted - real sports stories, written and read out with AI. Glad you're here either way!" };
+  }
+  if (/\b(fuck|idiot|stupid|hate you|shut up)\b/.test(t)) return { category: "abusive", reply: "" };
+  if (/\b(nice|great|love this|awesome|amazing|well done)\b/.test(t)) return { category: "compliment", reply: "Thank you, really appreciate that!" };
+  if (t.includes("?")) return { category: "question", reply: "Good question - everything here is sourced from the news, so check the credit line for more detail." };
+  return { category: "conversation", reply: "Thanks for watching!" };
 }

@@ -22,6 +22,7 @@ export const THEMES: Record<Template, Theme> = {
   quick_explainer: { label: "QUICK EXPLAINER", c0: "0x14123a", c1: "0x4338ca", accentBgr: "FFD36B" },
   daily_highlights: { label: "DAILY HIGHLIGHTS", c0: "0x1a0b2e", c1: "0x0f766e", accentBgr: "5EE7FF" },
   milestone_moment: { label: "MILESTONE MOMENT", c0: "0x1a1203", c1: "0xca8a04", accentBgr: "FFE066" },
+  matchup_preview: { label: "MATCHUP PREVIEW", c0: "0x0b1a2e", c1: "0x0e7490", accentBgr: "7DE2FF" },
 };
 
 const WHITE = "&H00FFFFFF";

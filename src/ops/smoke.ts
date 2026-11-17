@@ -106,6 +106,11 @@ export async function runSmoke(opts: { cfg: AppConfig; db: Db; alerter?: Alerter
       if (!j.name) throw new Error("token valid but the Page could not be read");
       return `page "${j.name}" reachable`;
     },
+    x: async (tk) => {
+      const j = await http(f, "https://api.x.com/2/users/me", { headers: { authorization: `Bearer ${tk.accessToken}` } });
+      if (!j.data?.username) throw new Error("token valid but no X profile could be read");
+      return `profile "@${j.data.username}" reachable`;
+    },
   };
   for (const p of PLATFORMS) {
     if (!cfg.schedule.platforms[p].enabled) {

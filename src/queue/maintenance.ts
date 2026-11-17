@@ -2,6 +2,7 @@ import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { runWeeklyLearning } from "../learning/agent.js";
 import { runAutonomyAgent } from "../autonomy/agent.js";
+import { runCommentPoll } from "../engagement/agent.js";
 import { findStuck, type ContentStatus } from "../db/content.js";
 import { getSetting, setSetting } from "../db/settings.js";
 import { checkpointDelays } from "../publish/agent.js";
@@ -193,6 +194,8 @@ export function makeMaintenanceHandler(qs: QueueSet, tokens: TokenStore | undefi
         return runWeeklyLearning(deps);
       case "autonomy-agent":
         return runAutonomyAgent(deps);
+      case "comment-poll":
+        return runCommentPoll(deps);
       case "housekeeping":
         return housekeeping(deps);
       default:

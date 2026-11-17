@@ -6,6 +6,7 @@ import { ensureInitialWeights } from "./ideate/weights.js";
 import { AnthropicProvider } from "./llm/anthropic.js";
 import { LlmClient } from "./llm/client.js";
 import { StubProvider } from "./llm/stub.js";
+import { buildCommentSources } from "./engagement/sources/index.js";
 import { createLogger, type Logger } from "./logger.js";
 import { buildPublishers } from "./publish/factory.js";
 import { makeRefresher } from "./publish/oauth.js";
@@ -99,6 +100,7 @@ export async function bootstrap(opts: { cfg?: AppConfig; /** false = carry on wi
     enqueue: makeEnqueue(qs),
     now: () => new Date(),
     publishers: buildPublishers(cfg, tokens),
+    commentSources: buildCommentSources(cfg, tokens),
   };
   log.info({ dryRun: cfg.env.DRY_RUN, renderer: cfg.env.RENDERER, llm: provider.name, db: db.kind, embedder: embedder.name, alertChannels: alerter.configuredChannels() }, "bootstrapped");
 

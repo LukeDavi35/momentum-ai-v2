@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FacebookPublisher } from "../src/publish/publishers/facebook.js";
 import { InstagramPublisher } from "../src/publish/publishers/instagram.js";
 import { TikTokPublisher } from "../src/publish/publishers/tiktok.js";
+import { XPublisher } from "../src/publish/publishers/x.js";
 import { YouTubePublisher } from "../src/publish/publishers/youtube.js";
 import { PublishError, type PublishRequest } from "../src/publish/types.js";
 import type { PlatformMetadata } from "../src/publish/metadata.js";
@@ -15,7 +16,7 @@ const coverPath = join(dir, "cover.jpg");
 writeFileSync(videoPath, Buffer.alloc(2048, 1));
 writeFileSync(coverPath, Buffer.alloc(64, 2));
 
-const meta = (platform: "tiktok" | "instagram" | "youtube" | "facebook"): PlatformMetadata => ({
+const meta = (platform: "tiktok" | "instagram" | "youtube" | "facebook" | "x"): PlatformMetadata => ({
   platform,
   title: "Kipyegon's record",
   caption: "Record night in Paris\n#athletics\nAI-assisted video with a synthetic voiceover.",
@@ -23,7 +24,7 @@ const meta = (platform: "tiktok" | "instagram" | "youtube" | "facebook"): Platfo
   aiDisclosure: { applied: true, line: "AI-assisted video with a synthetic voiceover.", nativeFlag: platform === "tiktok" ? "is_aigc" : platform === "youtube" ? "containsSyntheticMedia" : "none" },
   sourceCredit: "Source: BBC Sport",
 });
-const req = (platform: "tiktok" | "instagram" | "youtube" | "facebook", assertLive = vi.fn(async () => {})): PublishRequest & { assertLive: ReturnType<typeof vi.fn> } => ({
+const req = (platform: "tiktok" | "instagram" | "youtube" | "facebook" | "x", assertLive = vi.fn(async () => {})): PublishRequest & { assertLive: ReturnType<typeof vi.fn> } => ({
   contentId: "c1",
   videoPath,
   coverPath,
@@ -265,6 +266,80 @@ describe("FacebookPublisher", () => {
     const m = await new FacebookPublisher(tok, f).metrics("v999");
     expect(m).toMatchObject({ views: 1200, likes: 40, comments: 3, shares: 5 });
     expect(m.avgViewDurationS).toBeUndefined();
+  });
+});
+
+describe("XPublisher", () => {
+  const tok = async () => "XT";
+  const command = (init: RequestInit): string | null => (init.body instanceof URLSearchParams ? init.body.get("command") : null);
+  const happy = (finalizeInfo?: { state: string; check_after_secs?: number; error?: unknown }) =>
+    mockFetch([
+      [
+        /\/1\.1\/media\/upload\.json$/,
+        (_url, init) => {
+          if (init.body instanceof FormData) return json({}); // APPEND
+          const cmd = command(init);
+          if (cmd === "INIT") return json({ media_id_string: "M1" });
+          if (cmd === "FINALIZE") return json(finalizeInfo ? { processing_info: finalizeInfo } : {});
+          return json({});
+        },
+      ],
+      [/\/1\.1\/media\/upload\.json\?/, () => json({ processing_info: { state: "succeeded" } })], // STATUS poll (GET, has a query string)
+      [/\/2\/tweets$/, () => json({ data: { id: "T1" } })],
+      [/\/2\/users\/me$/, () => json({ data: { username: "momentum" } })],
+    ]);
+
+  it("uploads the video, creates the tweet, and returns the profile URL", async () => {
+    const { f, calls } = happy();
+    const r = req("x");
+    const out = await new XPublisher(tok, f, 0).publish(r);
+    expect(out).toEqual({ externalId: "T1", url: "https://x.com/momentum/status/T1" });
+    const tweetCall = calls.find((c) => /\/2\/tweets$/.test(c.url))!;
+    expect(tweetCall.body).toMatchObject({ text: r.meta.caption, media: { media_ids: ["M1"] } });
+    expect(r.assertLive).toHaveBeenCalledTimes(1);
+  });
+
+  it("gates right before the tweet-creation call, after the video upload finishes", async () => {
+    const { f, calls } = happy();
+    let callsAtGate = -1;
+    const r = req("x", vi.fn(async () => void (callsAtGate = calls.length)));
+    await new XPublisher(tok, f, 0).publish(r);
+    expect(callsAtGate).toBe(3); // INIT, APPEND, FINALIZE already happened; nothing public yet
+    expect(calls[3]!.url).toMatch(/\/2\/tweets$/);
+  });
+
+  it("polls video processing until it succeeds", async () => {
+    const { f, calls } = happy({ state: "processing", check_after_secs: 0 });
+    const out = await new XPublisher(tok, f, 0).publish(req("x"));
+    expect(out.externalId).toBe("T1");
+    expect(calls.some((c) => /\/1\.1\/media\/upload\.json\?/.test(c.url))).toBe(true);
+  });
+
+  it("a video processing failure never creates a tweet", async () => {
+    const { f, calls } = happy({ state: "failed", error: { message: "bad video" } });
+    await expect(new XPublisher(tok, f, 0).publish(req("x"))).rejects.toMatchObject({ retryable: false });
+    expect(calls.some((c) => /\/2\/tweets$/.test(c.url))).toBe(false);
+  });
+
+  it("a 5xx from tweet creation is AMBIGUOUS (the media is already uploaded)", async () => {
+    const { f } = mockFetch([
+      [
+        /\/1\.1\/media\/upload\.json$/,
+        (_url, init) => {
+          if (init.body instanceof FormData) return json({});
+          return command(init) === "INIT" ? json({ media_id_string: "M1" }) : json({});
+        },
+      ],
+      [/\/2\/tweets$/, () => new Response("upstream timeout", { status: 502 })],
+    ]);
+    await expect(new XPublisher(tok, f, 0).publish(req("x"))).rejects.toMatchObject({ retryable: false, ambiguous: true });
+  });
+
+  it("returns real metrics only; unavailable ones stay undefined (never faked)", async () => {
+    const { f } = mockFetch([[/\/2\/tweets\/T1/, () => json({ data: { public_metrics: { impression_count: 500, like_count: 20, reply_count: 2 } } })]]);
+    const m = await new XPublisher(tok, f).metrics("T1");
+    expect(m).toMatchObject({ views: 500, likes: 20, comments: 2 });
+    expect(m.shares).toBeUndefined();
   });
 });
 

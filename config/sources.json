@@ -6,8 +6,9 @@
     { "id": "guardian-sport", "url": "https://www.theguardian.com/uk/sport/rss",         "pillar": "sports_news",     "kind": "news" },
     { "id": "espn-top",      "url": "https://www.espn.com/espn/rss/news",               "pillar": "sports_news",     "kind": "news" },
     { "id": "bbc-football",  "url": "https://feeds.bbci.co.uk/sport/football/rss.xml",  "pillar": "football",        "kind": "news" },
-    { "id": "guardian-football", "url": "https://www.theguardian.com/football/rss",     "pillar": "football",        "kind": "news" }
+    { "id": "guardian-football", "url": "https://www.theguardian.com/football/rss",     "pillar": "football",        "kind": "news" },
+    { "id": "espn-nba",       "url": "https://www.espn.com/espn/rss/nba/news",          "pillar": "basketball",      "kind": "news" }
   ],
-  "trends": { "url": "https://trends.google.com/trending/rss?geo=GB", "keywords": ["run", "marathon", "athlet", "olymp", "sprint", "fitness", "workout", "gym", "training", "race", "world record", "track", "football", "tennis", "cycling", "swim"] },
+  "trends": { "url": "https://trends.google.com/trending/rss?geo=GB", "keywords": ["run", "marathon", "athlet", "olymp", "sprint", "fitness", "workout", "gym", "training", "race", "world record", "track", "football", "tennis", "cycling", "swim", "basketball", "nba"] },
   "reddit": { "userAgent": "momentum-ai-v2/2.0 (by /u/REPLACE_ME)", "limit": 25 }
 }

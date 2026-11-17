@@ -3,10 +3,11 @@
 Everything else is automated. Do these **in order**. Steps marked ⏱ have a waiting period, so start them first.
 
 > **Status of the code against these services:** the whole pipeline is tested end to end in DRY_RUN
-> (real Postgres, Redis, ffmpeg, RSS feeds). The TikTok / Instagram / Facebook / YouTube / ElevenLabs /
-> Anthropic / Reddit integrations are written to each service's documented API and unit-tested against mocked
-> HTTP, but **have never run against a live account** (no credentials existed). Expect to fix small things
-> during the first live connection — that is what step 12's supervised week is for.
+> (real Postgres, Redis, ffmpeg, RSS feeds). The TikTok / Instagram / Facebook / X / YouTube / ElevenLabs /
+> Anthropic / Reddit integrations, and the comment-reply engagement poll, are written to each service's
+> documented API and unit-tested against mocked HTTP, but **have never run against a live account** (no
+> credentials existed). Expect to fix small things during the first live connection — that is what step 12's
+> supervised week is for.
 
 ## 0. Decide where it runs
 A small VPS (2 vCPU / 4 GB RAM / 40 GB disk is enough; rendering is the heavy part) with Docker + Docker Compose, a domain name, and **HTTPS** in front of port 8080 (Caddy/Traefik/nginx).
@@ -93,6 +94,17 @@ Requires a Facebook **Page** (not a personal profile) that you administer.
    Submit the app for the Content Posting audit (it asks you to demonstrate compliant UX; the AI-content flag `is_aigc` is already set on every post).
    The pipeline works in the meantime but nothing will be public on TikTok.
 
+## 8b. X / Twitter (optional)
+1. [developer.x.com](https://developer.x.com) → create a project and App. User authentication settings: OAuth 2.0, type **Confidential client**, scopes `tweet.read tweet.write users.read offline.access`. Redirect URI: `https://your.domain/oauth/x/callback`.
+2. Copy the Client ID/secret → `X_CLIENT_ID`, `X_CLIENT_SECRET`.
+3. Disabled by default (`config/schedule.json → platforms.x.enabled: false`) until connected, same as Facebook above.
+
+## 8c. Comment replies (optional, needs re-consent)
+The engagement poll (`src/engagement/agent.ts`) reads and replies to comments on Instagram, Facebook and YouTube posts (TikTok's and X's APIs have no comment access). It's off per platform (`config/schedule.json → platforms.<name>.replies: false`) until you turn it on, and even then every reply is deterministically screened and rate-limited before it goes out (see DECISIONS.md).
+1. **It needs wider OAuth scopes than posting alone** — `instagram_business_manage_comments` (Instagram), `pages_manage_engagement` (Facebook), `https://www.googleapis.com/auth/youtube.force-ssl` (YouTube). These aren't in the scopes requested above, so **reconnect each account** (Dashboard → Connected accounts → Connect) after adding the permission in the platform's own app settings — the existing token doesn't gain the new scope on its own.
+2. Flip `replies: true` for a platform in `config/schedule.json` once it's reconnected with the wider scope.
+3. Tune `config/schedule.json → comments` (poll cadence, daily/per-post/per-author caps, the human-like delay range) before turning this on for a high-traffic account.
+
 ## 9. Start it (still DRY_RUN)
 ```bash
 docker compose up -d --build
@@ -100,12 +112,12 @@ docker compose ps            # everything "healthy"
 open https://your.domain     # dashboard — log in with ADMIN_TOKEN
 ```
 Dashboard → **Status → Connected accounts → Connect** for each platform and approve on the platform's consent page.
-Expected: three green "connected" pills.
+Expected: a green "connected" pill for each platform you enabled above.
 
 ## 10. Rehearse before going live (30 min)
 0. **Smoke test (read-only, posts nothing):**
    `docker compose --profile tools run --rm tools npm run smoke -- --alert`
-   Checks Postgres/Redis, every API key, each connected account (via read-only endpoints: TikTok creator-info, Instagram publishing quota, YouTube channel), whether live mode's prerequisites are met, and sends one test alert. Fix every ✘ before continuing. A TikTok line ending "posts will be private" means the app isn't audited yet.
+   Checks Postgres/Redis, every API key, each connected account (via read-only endpoints: TikTok creator-info, Instagram publishing quota, YouTube channel, Facebook Page lookup, X profile), whether live mode's prerequisites are met, and sends one test alert. Fix every ✘ before continuing. A TikTok line ending "posts will be private" means the app isn't audited yet.
 1. `docker compose --profile tools run --rm tools npm run dryrun` with your real API keys in `.env` — read the three generated pieces.
 2. **Alert + kill-switch drill:** click **Pause all publishing** on the dashboard. You should get a *critical* alert on your channel within seconds, and the red "PUBLISHING PAUSED" banner. Click **Resume publishing**.
 3. Confirm `config/schedule.json` (timezone, posts per day, peak times) and `config/limits.json` (spend caps, `maxPostsPerDay`) are what you want.

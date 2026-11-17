@@ -31,6 +31,7 @@ export const LIMITS = {
   youtube: { title: 100, description: 5000, hashtags: 3 },
   /** Facebook Page posts reuse the Instagram variant (see buildPlatformMetadata) - Meta's Graph API treats both near-identically, and Facebook's own caption limit (63,206 chars) is far looser than Instagram's anyway. */
   facebook: { caption: 2200, hashtags: 6, maxHashtags: 30 },
+  x: { caption: 280, hashtags: 3 },
 } as const;
 
 export const cleanTag = (t: string): string => t.replace(/^#+/, "").replace(/[^\p{L}\p{N}_]/gu, "");
@@ -71,8 +72,12 @@ export function buildPlatformMetadata(platform: Platform, content: Pick<Content,
   const nativeFlag = platform === "tiktok" ? "is_aigc" : platform === "youtube" ? "containsSyntheticMedia" : "none";
   const aiDisclosure = { applied: true, line: AI_DISCLOSURE_LINE, nativeFlag } as const;
 
-  if (platform === "tiktok") {
-    const tags = uniqueTags(v.tiktok.hashtags, LIMITS.tiktok.hashtags);
+  if (platform === "tiktok" || platform === "x") {
+    // X reuses the TikTok variant rather than asking the writer LLM for a 5th one - TikTok's caption
+    // is already capped at <=150 chars (see script/templates.ts's PLATFORM_NOTES), comfortably under
+    // X's 280-char limit, so nothing here needs re-shortening the way Facebook/Instagram's does.
+    const limits = platform === "x" ? LIMITS.x : LIMITS.tiktok;
+    const tags = uniqueTags(v.tiktok.hashtags, limits.hashtags);
     const caption = [v.tiktok.caption.trim(), tags.map((t) => `#${t}`).join(" "), credit, AI_DISCLOSURE_LINE].filter(Boolean).join("\n");
     return { platform, title: content.topic.slice(0, 90), caption, hashtags: tags, aiDisclosure, sourceCredit: credit };
   }

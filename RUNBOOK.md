@@ -46,7 +46,7 @@ The switch is checked at three points — when a publish job starts, again immed
 | `POSTGRES_PASSWORD` | change in `.env` *and* `ALTER USER momentum PASSWORD '…'` inside postgres, then `up -d`. |
 
 ## 4. Reconnect a social account
-Dashboard → Status → Connected accounts → **Connect**. (Alerts tell you when a token refresh fails: "*<platform> token refresh FAILED*".) TikTok/Instagram/YouTube tokens refresh automatically every 30 min when they are within 24 h of expiry; a human is only needed when a refresh token itself lapses (alerted 7 days ahead) or the platform revokes access.
+Dashboard → Status → Connected accounts → **Connect**. (Alerts tell you when a token refresh fails: "*<platform> token refresh FAILED*".) TikTok/Instagram/YouTube/X tokens refresh automatically every 30 min when they are within 24 h of expiry; a human is only needed when a refresh token itself lapses (alerted 7 days ahead) or the platform revokes access. Facebook Page tokens have no refresh at all — reconnect every ~60 days. Turning on comment replies (`platforms.<name>.replies: true`) needs wider scopes than posting alone (see SETUP_CHECKLIST.md § 8c) — reconnect the account after adding the permission, an existing token doesn't gain it on its own.
 
 ## 5. Failure playbook
 
@@ -61,6 +61,8 @@ Dashboard → Status → Connected accounts → **Connect**. (Alerts tell you wh
 | **Alert: "<platform> token refresh FAILED"** | token revoked / app secret changed / audit lapsed | Re-connect (section 4). Publishing to that platform pauses itself (jobs retry, then alert). |
 | **Alert: "Job dead-lettered in <queue>"** | a job failed 5× with backoff | Dashboard → Alerts → *Dead-lettered jobs* shows the error. The content is marked `failed`; the next cycle creates new content, so usually nothing to do. Fix the cause (key, quota) first. |
 | **Alert: "Queue backlog"** | worker down / slow render / API outage | `docker compose ps`; `docker compose logs worker`; restart the worker. Backlogs drain on their own. |
+| **Alert: "A comment needs a human right now (crisis language)"** | the comment-reply poll (`src/engagement/agent.ts`) found crisis/self-harm language — it is held immediately, never auto-replied | Read the comment and respond yourself on the platform; there is no automated path for this by design. `SELECT * FROM comments WHERE status = 'held' ORDER BY created_at DESC` shows everything waiting on a human, including replies that were drafted but failed the safety check (see `error`). |
+| **Alert: "<platform> comment reply/hide failed, will retry"** | a comment action errored (expired token, deleted comment, rate limit) | It retries on the next poll automatically; persistent failures usually mean the token needs reconnecting (section 4) with the comment scopes. |
 | **TikTok/YouTube posts are private** | app not yet audited (see SETUP_CHECKLIST) | Expected until the audit passes; the dashboard shows a warning on the publication. |
 | **Worker unhealthy / restart loop** | Redis unreachable, bad config | `docker compose logs worker`; the heartbeat file only updates while Redis answers, so Docker restarts a wedged worker automatically. |
 | **Items stuck in a stage > 20 min** | process died between a DB commit and the next enqueue | Self-heals: the reconciler (every 10 min) re-enqueues them. Check *Alerts* if it persists. |

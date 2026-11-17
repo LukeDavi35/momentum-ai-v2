@@ -8,6 +8,7 @@ import type { SpendTracker } from "../safety/spend.js";
 import type { Runner } from "../media/exec.js";
 import type { TtsProvider } from "../voice/types.js";
 import type { Publisher } from "../publish/types.js";
+import type { CommentSource } from "../engagement/types.js";
 import type { Platform } from "../config/index.js";
 import type { QueueName } from "./names.js";
 
@@ -49,6 +50,7 @@ export interface Deps {
   tts?: TtsProvider[];
   runner?: Runner;
   publishers?: Partial<Record<Platform, Publisher>>;
+  commentSources?: Partial<Record<Platform, CommentSource>>;
   rng?: () => number;
 }
 

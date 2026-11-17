@@ -40,6 +40,7 @@ export async function installSchedules(qs: QueueSet, cfg: AppConfig): Promise<st
   await add(MAINTENANCE_QUEUE, "refresh-tokens", { every: mins(30) }, "refresh-tokens");
   await add(MAINTENANCE_QUEUE, "weekly-learning", { pattern: s.learning.weeklyCron, tz }, "weekly-learning");
   await add(MAINTENANCE_QUEUE, "autonomy-agent", { every: mins(s.autonomy.everyMinutes) }, "autonomy-agent");
+  await add(MAINTENANCE_QUEUE, "comment-poll", { every: mins(s.comments.everyMinutes) }, "comment-poll");
   return installed;
 }
 

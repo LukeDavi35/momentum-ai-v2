@@ -124,7 +124,7 @@ export function createApp(ctx: ApiContext): express.Express {
         return;
       }
       try {
-        const tokens = await exchangeCode(cfg, platform, code, deps.fetchImpl ?? fetch, deps.now());
+        const tokens = await exchangeCode(cfg, platform, code, state, deps.fetchImpl ?? fetch, deps.now());
         await ctx.tokens.save(platform, tokens);
         await deps.alerter.send({ key: `oauth_connected:${platform}`, severity: "info", title: `${platform} account connected`, throttleMs: 0 });
         res.status(200).send(`<h3>${platform} connected.</h3><p>You can close this tab and return to the dashboard.</p>`);

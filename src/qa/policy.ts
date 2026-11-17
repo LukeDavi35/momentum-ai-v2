@@ -31,7 +31,8 @@ export const TEXT_RULES: Rule[] = [
   { rule: "profanity", re: /\b(fuck(ing)?|shit(ty)?|bastard|cunt)\b/i, why: "profanity" },
 ];
 
-function scan(text: string, where: string, out: PolicyViolation[]): void {
+/** Also reused by src/engagement/policy.ts for reply-safety screening - the rules are generic text-safety regexes, not video-script-specific. */
+export function scan(text: string, where: string, out: PolicyViolation[]): void {
   for (const r of TEXT_RULES) {
     const m = text.match(r.re);
     if (m) out.push({ rule: r.rule, where, excerpt: `${r.why}: "${m[0].slice(0, 80)}"` });
@@ -42,8 +43,9 @@ export function checkMetadata(platform: Platform, m: PlatformMetadata): PolicyVi
   const v: PolicyViolation[] = [];
   const where = `metadata:${platform}`;
   if (!m.aiDisclosure.applied || !m.caption.includes(m.aiDisclosure.line)) v.push({ rule: "ai_disclosure", where, excerpt: "AI disclosure line missing from the post text" });
-  if (platform === "tiktok") {
-    if (m.caption.length > LIMITS.tiktok.caption) v.push({ rule: "limits", where, excerpt: `caption ${m.caption.length} > ${LIMITS.tiktok.caption} chars` });
+  if (platform === "tiktok" || platform === "x") {
+    const limits = platform === "x" ? LIMITS.x : LIMITS.tiktok;
+    if (m.caption.length > limits.caption) v.push({ rule: "limits", where, excerpt: `caption ${m.caption.length} > ${limits.caption} chars` });
   } else if (platform === "instagram" || platform === "facebook") {
     const limits = platform === "facebook" ? LIMITS.facebook : LIMITS.instagram;
     if (m.caption.length > limits.caption) v.push({ rule: "limits", where, excerpt: `caption ${m.caption.length} > ${limits.caption} chars` });

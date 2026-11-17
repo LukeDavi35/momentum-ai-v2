@@ -1,18 +1,20 @@
 {
   "pillars": {
-    "running":         { "weight": 0.25, "subreddits": ["running"] },
-    "fitness":         { "weight": 0.20, "subreddits": ["fitness"] },
-    "track_and_field": { "weight": 0.20, "subreddits": ["trackandfield"] },
-    "sports_news":     { "weight": 0.15, "subreddits": [] },
-    "football":        { "weight": 0.20, "subreddits": ["soccer"] }
+    "running":         { "weight": 0.22, "subreddits": ["running"] },
+    "fitness":         { "weight": 0.17, "subreddits": ["fitness"] },
+    "track_and_field": { "weight": 0.17, "subreddits": ["trackandfield"] },
+    "sports_news":     { "weight": 0.13, "subreddits": [] },
+    "football":        { "weight": 0.17, "subreddits": ["soccer"] },
+    "basketball":      { "weight": 0.14, "subreddits": ["nba"] }
   },
   "templates": {
-    "news_flash":      { "pillars": ["sports_news", "track_and_field", "running", "football"], "description": "Headline + 3 key points from a fresh news item" },
-    "stat_spotlight":  { "pillars": ["track_and_field", "running", "sports_news", "football"], "description": "One striking number (time, distance, record) with context" },
+    "news_flash":      { "pillars": ["sports_news", "track_and_field", "running", "football", "basketball"], "description": "Headline + 3 key points from a fresh news item" },
+    "stat_spotlight":  { "pillars": ["track_and_field", "running", "sports_news", "football", "basketball"], "description": "One striking number (time, distance, record) with context" },
     "race_recap":      { "pillars": ["running", "track_and_field", "sports_news"], "description": "Result summary: winner, key moment, what it means" },
     "training_tip":    { "pillars": ["fitness", "running"], "description": "3 numbered general-interest tips; never individual medical advice" },
-    "quick_explainer": { "pillars": ["fitness", "running", "track_and_field", "sports_news", "football"], "description": "Explain one concept or rule in plain language" },
-    "daily_highlights": { "pillars": ["sports_news", "track_and_field", "running", "fitness", "football"], "description": "The day's top stories as one compilation (built by the daily highlights job, not by ideation)" },
-    "milestone_moment": { "pillars": ["track_and_field", "running", "football", "sports_news"], "description": "A personal record or milestone just broken or matched, with the mark and its significance" }
+    "quick_explainer": { "pillars": ["fitness", "running", "track_and_field", "sports_news", "football", "basketball"], "description": "Explain one concept or rule in plain language" },
+    "daily_highlights": { "pillars": ["sports_news", "track_and_field", "running", "fitness", "football", "basketball"], "description": "The day's top stories as one compilation (built by the daily highlights job, not by ideation)" },
+    "milestone_moment": { "pillars": ["track_and_field", "running", "football", "basketball", "sports_news"], "description": "A personal record or milestone just broken or matched, with the mark and its significance" },
+    "matchup_preview":  { "pillars": ["sports_news", "football", "basketball"], "description": "An upcoming fixture preview - who's playing, the stakes, no result (forward-looking, built before the event)" }
   }
 }

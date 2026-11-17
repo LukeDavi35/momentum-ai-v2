@@ -4,7 +4,8 @@
     "tiktok":    { "enabled": true, "postsPerDay": 3, "peakTimes": ["07:30", "12:30", "19:00"], "jitterMinutes": 20 },
     "instagram": { "enabled": true, "postsPerDay": 3, "peakTimes": ["08:00", "12:00", "18:30"], "jitterMinutes": 20 },
     "youtube":   { "enabled": true, "postsPerDay": 3, "peakTimes": ["09:00", "13:00", "17:30"], "jitterMinutes": 20 },
-    "facebook":  { "enabled": false, "postsPerDay": 2, "peakTimes": ["08:30", "18:00"], "jitterMinutes": 20 }
+    "facebook":  { "enabled": false, "postsPerDay": 2, "peakTimes": ["08:30", "18:00"], "jitterMinutes": 20 },
+    "x":         { "enabled": false, "postsPerDay": 3, "peakTimes": ["08:00", "13:00", "19:30"], "jitterMinutes": 20 }
   },
   "ingest":  { "rssEveryMinutes": 30, "trendsEveryMinutes": 60, "redditEveryMinutes": 60, "internalEveryMinutes": 360 },
   "ideate":  { "everyMinutes": 120, "candidatesPerCycle": 12, "keepTopN": 2 },
@@ -13,6 +14,7 @@
   "analytics": { "checkpoints": ["1h", "24h", "7d"] },
   "learning": { "weeklyCron": "0 6 * * 1" },
   "autonomy": { "everyMinutes": 60 },
+  "comments": { "everyMinutes": 15, "dailyCap": 40, "perPostCap": 25, "perAuthorDaily": 2, "minGapSeconds": 90, "delayMinutesMin": 4, "delayMinutesMax": 30, "windowHours": 48, "lookbackDays": 7 },
   "compilations": {
     "daily":  { "enabled": true, "cron": "30 16 * * *", "label": "Today's sports highlights",        "lookbackHours": 24,  "maxStories": 4, "footage": { "enabled": true, "providers": ["library", "pexels", "commons"], "minClipSeconds": 3, "licenses": ["cc0", "public_domain", "cc_by", "pexels", "owned"], "reuseCooldownDays": 7 } },
     "weekly": { "enabled": true, "cron": "0 9 * * 0",   "label": "This week's biggest sports moments", "lookbackHours": 168, "maxStories": 6, "footage": { "enabled": true, "providers": ["library", "pexels", "commons"], "minClipSeconds": 3, "licenses": ["cc0", "public_domain", "cc_by", "pexels", "owned"], "reuseCooldownDays": 7 } }

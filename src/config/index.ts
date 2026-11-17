@@ -72,6 +72,8 @@ export const envSchema = z.object({
   FACEBOOK_APP_ID: optStr,
   FACEBOOK_APP_SECRET: optStr,
   FACEBOOK_PAGE_ID: optStr,
+  X_CLIENT_ID: optStr,
+  X_CLIENT_SECRET: optStr,
 
   DISCORD_WEBHOOK_URL: optStr,
   TELEGRAM_BOT_TOKEN: optStr,
@@ -87,7 +89,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   return envSchema.parse(source);
 }
 
-export const PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"] as const;
+export const PLATFORMS = ["tiktok", "instagram", "youtube", "facebook", "x"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
 const platformScheduleSchema = z.object({
@@ -95,6 +97,8 @@ const platformScheduleSchema = z.object({
   postsPerDay: z.number().int().min(0),
   peakTimes: z.array(z.string().regex(/^\d{2}:\d{2}$/)).min(1),
   jitterMinutes: z.number().min(0),
+  /** Comment monitoring + replies. Off by default - needs the wider OAuth scopes (see SETUP_CHECKLIST.md), so an existing connection must be re-consented before this can be turned on. */
+  replies: z.boolean().default(false),
 });
 
 export const FOOTAGE_PROVIDERS = ["library", "pexels", "commons"] as const;
@@ -143,6 +147,7 @@ export const scheduleSchema = z.object({
     instagram: platformScheduleSchema,
     youtube: platformScheduleSchema,
     facebook: platformScheduleSchema,
+    x: platformScheduleSchema,
   }),
   ingest: z.object({
     rssEveryMinutes: z.number().positive(),
@@ -158,6 +163,23 @@ export const scheduleSchema = z.object({
   /** How often the autonomy agent (src/autonomy/agent.ts) checks whether to raise a cap or adjust the learning mode - it only actually changes anything at most once a week regardless of this cadence. */
   autonomy: z.object({ everyMinutes: z.number().positive() }).default({ everyMinutes: 60 }),
   compilations: compilationsSchema,
+  /** Comment monitoring + replies (src/engagement/agent.ts). Caps/delays mirror ai-influencer's same feature. */
+  comments: z
+    .object({
+      everyMinutes: z.number().positive(),
+      dailyCap: z.number().int().positive(),
+      perPostCap: z.number().int().positive(),
+      perAuthorDaily: z.number().int().positive(),
+      minGapSeconds: z.number().min(0),
+      /** A reply waits a random time in this range after the comment's own timestamp before it's eligible to send - looks human, not instant. */
+      delayMinutesMin: z.number().min(0),
+      delayMinutesMax: z.number().min(0),
+      /** A comment older than this when first seen is abandoned even if otherwise eligible. */
+      windowHours: z.number().positive(),
+      /** How far back to look for published posts worth polling for new comments. */
+      lookbackDays: z.number().positive(),
+    })
+    .default({ everyMinutes: 15, dailyCap: 40, perPostCap: 25, perAuthorDaily: 2, minGapSeconds: 90, delayMinutesMin: 4, delayMinutesMax: 30, windowHours: 48, lookbackDays: 7 }),
 });
 export type ScheduleConfig = z.infer<typeof scheduleSchema>;
 
@@ -169,11 +191,12 @@ export const TEMPLATES = [
   "quick_explainer",
   "daily_highlights",
   "milestone_moment",
+  "matchup_preview",
 ] as const;
 export type Template = (typeof TEMPLATES)[number];
 /** Templates built by their own scheduled job from several stories at once, never proposed by the per-story ideation cycle. */
 export const COMPILATION_TEMPLATES: readonly Template[] = ["daily_highlights"];
-export const PILLARS = ["running", "fitness", "track_and_field", "sports_news", "football"] as const;
+export const PILLARS = ["running", "fitness", "track_and_field", "sports_news", "football", "basketball"] as const;
 export type Pillar = (typeof PILLARS)[number];
 
 export const pillarsSchema = z.object({

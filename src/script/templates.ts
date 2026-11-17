@@ -42,6 +42,11 @@ export const TEMPLATE_SPECS: Record<Template, TemplateSpec> = {
       "Beat 1 = hook announcing the record/milestone just broken or matched (<=14 words). Then who did it, the number/mark itself exactly as in the source, how it compares to the previous record ONLY if the source states it, and the significance or reaction. Short call-to-action.",
     visual: 'headline = who + what milestone, <=8 words; stat = the record/mark exactly as in the source (e.g. "9.58s"); statLabel = what it measures (e.g. "new 100m world record").',
   },
+  matchup_preview: {
+    structure:
+      "This is FORWARD-LOOKING, not a recap. Beat 1 = hook teasing the upcoming fixture (<=14 words, no result - it hasn't happened). Then who's playing and when, what's at stake (standings, rivalry, stakes) ONLY if the source gives it, one notable fact about either side ONLY if sourced, and a short call-to-action to tune in or follow for the result. Never state or imply a result or score.",
+    visual: 'headline = "Team A vs Team B" or the fixture name, <=8 words; items = up to 3 key facts (e.g. kickoff time, venue, stakes) as <=6-word chips, ONLY those given by a source.',
+  },
 };
 
 export const PLATFORM_NOTES = `Platform variants (all required):

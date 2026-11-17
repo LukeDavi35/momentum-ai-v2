@@ -4,6 +4,7 @@ import { DryRunPublisher } from "./publishers/dryrun.js";
 import { FacebookPublisher } from "./publishers/facebook.js";
 import { InstagramPublisher } from "./publishers/instagram.js";
 import { TikTokPublisher } from "./publishers/tiktok.js";
+import { XPublisher } from "./publishers/x.js";
 import { YouTubePublisher } from "./publishers/youtube.js";
 import type { TokenStore } from "./tokens.js";
 import type { Publisher } from "./types.js";
@@ -17,6 +18,7 @@ export function buildPublishers(cfg: AppConfig, tokens: TokenStore | undefined, 
       instagram: new DryRunPublisher("instagram", out),
       youtube: new DryRunPublisher("youtube", out),
       facebook: new DryRunPublisher("facebook", out),
+      x: new DryRunPublisher("x", out),
     };
   }
   if (!tokens) throw new Error("live publishing needs a TokenStore (TOKEN_ENC_KEY must be set)");
@@ -33,5 +35,6 @@ export function buildPublishers(cfg: AppConfig, tokens: TokenStore | undefined, 
       if (!t.accountId) throw new Error("Facebook page id missing; reconnect the account");
       return { accessToken: t.accessToken, pageId: t.accountId };
     }, f),
+    x: new XPublisher(async () => (await tokens.getValidAccessToken("x")).accessToken, f),
   };
 }

@@ -206,4 +206,34 @@ CREATE TABLE footage_clips (
 CREATE INDEX footage_clips_used_idx ON footage_clips (last_used_at DESC);
 `,
   },
+  {
+    version: 3,
+    sql: `
+CREATE TABLE comments (
+  id              UUID PRIMARY KEY,
+  publication_id  UUID NOT NULL,
+  platform        TEXT NOT NULL,
+  external_id     TEXT NOT NULL,
+  author          TEXT NOT NULL DEFAULT '',
+  author_id       TEXT NOT NULL DEFAULT '',
+  text            TEXT NOT NULL,
+  posted_at       TIMESTAMPTZ,
+  status          TEXT NOT NULL DEFAULT 'new',    -- new | held | queued | replied | hidden | skipped
+  category        TEXT,
+  reply_text      TEXT,
+  /** Not eligible to send before this - a human-like delay set once at triage time, not re-randomised every poll. */
+  eligible_at     TIMESTAMPTZ,
+  /** When a reply was sent or a hide was executed (both actions, despite the name) - set from the
+      agent's own clock (deps.now()), never from the database's, so caps/gaps stay testable. */
+  acted_at        TIMESTAMPTZ,
+  error           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (platform, external_id)
+);
+CREATE INDEX comments_status_idx ON comments (status, created_at);
+CREATE INDEX comments_publication_idx ON comments (publication_id);
+CREATE INDEX comments_author_idx ON comments (platform, author_id, created_at);
+`,
+  },
 ];

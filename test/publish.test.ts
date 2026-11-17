@@ -158,11 +158,11 @@ describe("oauth + signed media", () => {
 
   it("exchanges a Google code and insists on a refresh token", async () => {
     const f = vi.fn(async () => new Response(JSON.stringify({ access_token: "AT", refresh_token: "RT", expires_in: 3600 }), { status: 200 }));
-    const t = await exchangeCode(cfg, "youtube", "code", f as any, NOW);
+    const t = await exchangeCode(cfg, "youtube", "code", "st", f as any, NOW);
     expect(t).toMatchObject({ accessToken: "AT", refreshToken: "RT" });
     expect(t.expiresAt!.getTime()).toBe(NOW.getTime() + 3600_000);
     const noRefresh = vi.fn(async () => new Response(JSON.stringify({ access_token: "AT", expires_in: 3600 })));
-    await expect(exchangeCode(cfg, "youtube", "code", noRefresh as any, NOW)).rejects.toThrow(/refresh_token/);
+    await expect(exchangeCode(cfg, "youtube", "code", "st", noRefresh as any, NOW)).rejects.toThrow(/refresh_token/);
   });
 
   it("refreshes each platform through its own endpoint", async () => {

@@ -1,11 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AppConfig, Platform } from "../config/index.js";
 import type { RefreshResult, TokenSet } from "./tokens.js";
 
 type FetchLike = typeof fetch;
 
 /**
- * OAuth helpers for the four platforms. Written to each platform's documented endpoints;
+ * OAuth helpers for the five platforms. Written to each platform's documented endpoints;
  * NOT yet exercised against live apps (no credentials exist) — see SETUP_CHECKLIST.md.
  * The owner completes consent once via GET /oauth/:platform/start on the dashboard server.
  */
@@ -14,6 +14,7 @@ export const SCOPES: Record<Platform, string> = {
   instagram: "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_insights",
   youtube: "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
   facebook: "pages_show_list,pages_read_engagement,pages_manage_posts,read_insights",
+  x: "tweet.read tweet.write users.read offline.access",
 };
 
 export function redirectUri(cfg: AppConfig, platform: Platform): string {
@@ -26,8 +27,18 @@ export function redirectUri(cfg: AppConfig, platform: Platform): string {
 export function makeState(cfg: AppConfig, platform: Platform, now = Date.now()): string {
   const secret = cfg.env.TOKEN_ENC_KEY;
   if (!secret) throw new Error("TOKEN_ENC_KEY required");
-  const body = `${platform}.${now}.${randomBytes(8).toString("hex")}`;
+  // The extra random segment doubles as this attempt's PKCE code_verifier (only "x" uses one) -
+  // carrying it inside the signed state avoids a second place to stash per-attempt data between
+  // the authUrl and exchangeCode legs of the redirect round trip.
+  const verifier = randomBytes(32).toString("base64url");
+  const body = `${platform}.${now}.${randomBytes(8).toString("hex")}.${verifier}`;
   return `${body}.${createHmac("sha256", secret).update(body).digest("hex")}`;
+}
+
+/** The PKCE verifier embedded in a state string by makeState(); "" if the state is malformed. */
+function pkceVerifier(state: string): string {
+  const i = state.lastIndexOf(".");
+  return (i < 0 ? state : state.slice(0, i)).split(".")[3] ?? "";
 }
 
 export function verifyState(cfg: AppConfig, state: string, platform: Platform, now = Date.now(), maxAgeMs = 15 * 60_000): boolean {
@@ -58,6 +69,11 @@ export function authUrl(cfg: AppConfig, platform: Platform, state: string): stri
     if (!e.FACEBOOK_APP_ID) throw new Error("FACEBOOK_APP_ID not set");
     return `https://www.facebook.com/v23.0/dialog/oauth?${new URLSearchParams({ client_id: e.FACEBOOK_APP_ID, redirect_uri: redirect, response_type: "code", scope: SCOPES.facebook, state })}`;
   }
+  if (platform === "x") {
+    if (!e.X_CLIENT_ID) throw new Error("X_CLIENT_ID not set");
+    const challenge = createHash("sha256").update(pkceVerifier(state)).digest("base64url");
+    return `https://x.com/i/oauth2/authorize?${new URLSearchParams({ client_id: e.X_CLIENT_ID, redirect_uri: redirect, response_type: "code", scope: SCOPES.x, state, code_challenge: challenge, code_challenge_method: "S256" })}`;
+  }
   if (!e.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID not set");
   return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({ client_id: e.GOOGLE_CLIENT_ID, redirect_uri: redirect, response_type: "code", scope: SCOPES.youtube, access_type: "offline", prompt: "consent", state })}`;
 }
@@ -77,7 +93,7 @@ async function postForm(url: string, form: Record<string, string>, f: FetchLike)
   return json;
 }
 
-export async function exchangeCode(cfg: AppConfig, platform: Platform, code: string, f: FetchLike = fetch, now = new Date()): Promise<TokenSet> {
+export async function exchangeCode(cfg: AppConfig, platform: Platform, code: string, state: string, f: FetchLike = fetch, now = new Date()): Promise<TokenSet> {
   const e = cfg.env;
   const redirect = redirectUri(cfg, platform);
   if (platform === "tiktok") {
@@ -109,6 +125,19 @@ export async function exchangeCode(cfg: AppConfig, platform: Platform, code: str
     if (!page) throw new Error(`FACEBOOK_PAGE_ID ${e.FACEBOOK_PAGE_ID} is not among this user's managed Pages`);
     return { accessToken: page.access_token, expiresAt: addSeconds(long.expires_in, now), accountId: e.FACEBOOK_PAGE_ID, scopes: SCOPES.facebook };
   }
+  if (platform === "x") {
+    if (!e.X_CLIENT_ID || !e.X_CLIENT_SECRET) throw new Error("X_CLIENT_ID/X_CLIENT_SECRET not set");
+    const basic = Buffer.from(`${e.X_CLIENT_ID}:${e.X_CLIENT_SECRET}`).toString("base64");
+    const res = await f("https://api.x.com/2/oauth2/token", {
+      method: "POST",
+      headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: pkceVerifier(state) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j = (await res.json()) as any;
+    if (!res.ok || j.error) throw new Error(`x token exchange failed: ${JSON.stringify(j).slice(0, 300)}`);
+    return { accessToken: j.access_token, refreshToken: j.refresh_token, expiresAt: addSeconds(j.expires_in, now), scopes: j.scope };
+  }
   const j = await postForm("https://oauth2.googleapis.com/token", { client_id: e.GOOGLE_CLIENT_ID ?? "", client_secret: e.GOOGLE_CLIENT_SECRET ?? "", code, grant_type: "authorization_code", redirect_uri: redirect }, f);
   if (!j.refresh_token) throw new Error("Google returned no refresh_token; revoke the app's access in your Google account and consent again (prompt=consent)");
   return { accessToken: j.access_token, refreshToken: j.refresh_token, expiresAt: addSeconds(j.expires_in, now), scopes: j.scope };
@@ -135,6 +164,20 @@ export function makeRefresher(cfg: AppConfig, f: FetchLike = fetch, now: () => D
       // one is to redo consent - this throw routes into TokenStore's existing refresh-failure alert,
       // which already tells the owner to reconnect (see RUNBOOK.md -> "Reconnect a social account").
       throw new Error("Facebook Page tokens cannot be refreshed; reconnect the account (see RUNBOOK.md)");
+    }
+    if (platform === "x") {
+      if (!t.refreshToken) throw new Error("no X refresh token stored");
+      if (!e.X_CLIENT_ID || !e.X_CLIENT_SECRET) throw new Error("X_CLIENT_ID/X_CLIENT_SECRET not set");
+      const basic = Buffer.from(`${e.X_CLIENT_ID}:${e.X_CLIENT_SECRET}`).toString("base64");
+      const res = await f("https://api.x.com/2/oauth2/token", {
+        method: "POST",
+        headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refreshToken }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const j = (await res.json()) as any;
+      if (!res.ok || j.error) throw new Error(`x refresh failed: ${JSON.stringify(j).slice(0, 300)}`);
+      return { accessToken: j.access_token, refreshToken: j.refresh_token ?? t.refreshToken, expiresAt: addSeconds(j.expires_in, now()) };
     }
     if (!t.refreshToken) throw new Error("no Google refresh token stored");
     const j = await postForm("https://oauth2.googleapis.com/token", { client_id: e.GOOGLE_CLIENT_ID ?? "", client_secret: e.GOOGLE_CLIENT_SECRET ?? "", grant_type: "refresh_token", refresh_token: t.refreshToken }, f);

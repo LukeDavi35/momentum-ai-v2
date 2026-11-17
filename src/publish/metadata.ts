@@ -29,6 +29,8 @@ export const LIMITS = {
   tiktok: { caption: 2200, hashtags: 5 },
   instagram: { caption: 2200, hashtags: 6, maxHashtags: 30 },
   youtube: { title: 100, description: 5000, hashtags: 3 },
+  /** Facebook Page posts reuse the Instagram variant (see buildPlatformMetadata) - Meta's Graph API treats both near-identically, and Facebook's own caption limit (63,206 chars) is far looser than Instagram's anyway. */
+  facebook: { caption: 2200, hashtags: 6, maxHashtags: 30 },
 } as const;
 
 export const cleanTag = (t: string): string => t.replace(/^#+/, "").replace(/[^\p{L}\p{N}_]/gu, "");
@@ -74,8 +76,11 @@ export function buildPlatformMetadata(platform: Platform, content: Pick<Content,
     const caption = [v.tiktok.caption.trim(), tags.map((t) => `#${t}`).join(" "), credit, AI_DISCLOSURE_LINE].filter(Boolean).join("\n");
     return { platform, title: content.topic.slice(0, 90), caption, hashtags: tags, aiDisclosure, sourceCredit: credit };
   }
-  if (platform === "instagram") {
-    const tags = uniqueTags(v.instagram.hashtags, LIMITS.instagram.hashtags);
+  if (platform === "instagram" || platform === "facebook") {
+    // Facebook Page posts reuse the Instagram variant rather than asking the writer LLM for a 4th
+    // one - Meta's Graph API treats IG and FB Page caption/hashtag conventions near-identically.
+    const limits = platform === "facebook" ? LIMITS.facebook : LIMITS.instagram;
+    const tags = uniqueTags(v.instagram.hashtags, limits.hashtags);
     const caption = [v.instagram.caption.trim(), "", tags.map((t) => `#${t}`).join(" "), credit, AI_DISCLOSURE_LINE].filter((x) => x !== null && x !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
     return { platform, title: content.topic.slice(0, 90), caption, hashtags: tags, aiDisclosure, sourceCredit: credit };
   }

@@ -69,6 +69,9 @@ export const envSchema = z.object({
   INSTAGRAM_APP_SECRET: optStr,
   GOOGLE_CLIENT_ID: optStr,
   GOOGLE_CLIENT_SECRET: optStr,
+  FACEBOOK_APP_ID: optStr,
+  FACEBOOK_APP_SECRET: optStr,
+  FACEBOOK_PAGE_ID: optStr,
 
   DISCORD_WEBHOOK_URL: optStr,
   TELEGRAM_BOT_TOKEN: optStr,
@@ -84,7 +87,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   return envSchema.parse(source);
 }
 
-export const PLATFORMS = ["tiktok", "instagram", "youtube"] as const;
+export const PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
 const platformScheduleSchema = z.object({
@@ -135,7 +138,12 @@ export const compilationsSchema = z.record(z.string().min(1), compilationProfile
 
 export const scheduleSchema = z.object({
   timezone: z.string(),
-  platforms: z.object({ tiktok: platformScheduleSchema, instagram: platformScheduleSchema, youtube: platformScheduleSchema }),
+  platforms: z.object({
+    tiktok: platformScheduleSchema,
+    instagram: platformScheduleSchema,
+    youtube: platformScheduleSchema,
+    facebook: platformScheduleSchema,
+  }),
   ingest: z.object({
     rssEveryMinutes: z.number().positive(),
     trendsEveryMinutes: z.number().positive(),
@@ -153,11 +161,19 @@ export const scheduleSchema = z.object({
 });
 export type ScheduleConfig = z.infer<typeof scheduleSchema>;
 
-export const TEMPLATES = ["news_flash", "stat_spotlight", "race_recap", "training_tip", "quick_explainer", "daily_highlights"] as const;
+export const TEMPLATES = [
+  "news_flash",
+  "stat_spotlight",
+  "race_recap",
+  "training_tip",
+  "quick_explainer",
+  "daily_highlights",
+  "milestone_moment",
+] as const;
 export type Template = (typeof TEMPLATES)[number];
 /** Templates built by their own scheduled job from several stories at once, never proposed by the per-story ideation cycle. */
 export const COMPILATION_TEMPLATES: readonly Template[] = ["daily_highlights"];
-export const PILLARS = ["running", "fitness", "track_and_field", "sports_news"] as const;
+export const PILLARS = ["running", "fitness", "track_and_field", "sports_news", "football"] as const;
 export type Pillar = (typeof PILLARS)[number];
 
 export const pillarsSchema = z.object({

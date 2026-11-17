@@ -73,18 +73,31 @@ describe("metadata + policy", () => {
     expect(buildPlatformMetadata("instagram", content, script, sources).aiDisclosure.nativeFlag).toBe("none");
   });
 
+  it("facebook reuses the instagram variant rather than a 4th writer-LLM variant, and gets instagram-style limits", () => {
+    const ig = buildPlatformMetadata("instagram", content, script, sources);
+    const fb = buildPlatformMetadata("facebook", content, script, sources);
+    expect(fb.caption).toBe(ig.caption);
+    expect(fb.hashtags).toEqual(ig.hashtags);
+    expect(fb.aiDisclosure.nativeFlag).toBe("none");
+    const meta = { tiktok: buildPlatformMetadata("tiktok", content, script, sources), instagram: ig, youtube: buildPlatformMetadata("youtube", content, script, sources), facebook: fb };
+    expect(checkPolicy(script, meta).passed).toBe(true);
+    const tooManyTags = { ...meta, facebook: { ...fb, hashtags: Array.from({ length: 31 }, (_, i) => `t${i}`) } };
+    expect(checkPolicy(script, tooManyTags).violations.some((v) => v.where === "metadata:facebook" && v.rule === "limits")).toBe(true);
+  });
+
   it("passes clean content and fails when the AI disclosure is missing or a limit is exceeded", () => {
+    const three = ["tiktok", "instagram", "youtube"] as const;
     const meta = {
       tiktok: buildPlatformMetadata("tiktok", content, script, sources),
       instagram: buildPlatformMetadata("instagram", content, script, sources),
       youtube: buildPlatformMetadata("youtube", content, script, sources),
     };
-    expect(checkPolicy(script, meta).passed).toBe(true);
+    expect(checkPolicy(script, meta, three).passed).toBe(true);
     const noDisclosure = { ...meta, tiktok: { ...meta.tiktok, caption: "no disclosure here" } };
-    expect(checkPolicy(script, noDisclosure).violations).toContainEqual(expect.objectContaining({ rule: "ai_disclosure", where: "metadata:tiktok" }));
+    expect(checkPolicy(script, noDisclosure, three).violations).toContainEqual(expect.objectContaining({ rule: "ai_disclosure", where: "metadata:tiktok" }));
     const longTitle = { ...meta, youtube: { ...meta.youtube, title: "x".repeat(101) } };
-    expect(checkPolicy(script, longTitle).violations.some((v) => v.rule === "limits")).toBe(true);
-    expect(checkPolicy(script, { tiktok: meta.tiktok }).violations.some((v) => v.where === "metadata:youtube")).toBe(true); // missing metadata for an enabled platform
+    expect(checkPolicy(script, longTitle, three).violations.some((v) => v.rule === "limits")).toBe(true);
+    expect(checkPolicy(script, { tiktok: meta.tiktok }, three).violations.some((v) => v.where === "metadata:youtube")).toBe(true); // missing metadata for an enabled platform
   });
 
   it("catches policy violations inside the narration and on-screen text", () => {

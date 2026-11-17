@@ -1,3 +1,4 @@
+import type { Platform } from "../config/index.js";
 import { transition } from "../db/content.js";
 import type { Deps, JobData } from "../queue/types.js";
 
@@ -16,7 +17,7 @@ export async function runAnalytics(deps: Deps, data: JobData): Promise<Analytics
     log.info({ publicationId: data.publicationId, status: pub?.status }, "analytics: publication not published, skipping");
     return "skipped";
   }
-  const publisher = deps.publishers?.[pub.platform as "tiktok" | "instagram" | "youtube"];
+  const publisher = deps.publishers?.[pub.platform as Platform];
   if (!publisher) throw new Error(`no publisher configured for ${pub.platform}`);
 
   const m = await publisher.metrics(pub.external_id, { caption: pub.metadata?.meta?.caption, publishedAt: pub.published_at ? new Date(pub.published_at) : undefined, checkpoint: data.checkpoint });

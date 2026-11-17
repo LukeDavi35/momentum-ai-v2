@@ -6,6 +6,9 @@ export interface Attention {
   text: string;
 }
 
+// Only platforms enabled by default; facebook starts disabled (config/schedule.json) until the
+// owner connects it, so it doesn't belong here until there's an enabled-platforms field on
+// Overview to check instead of this hardcoded list.
 const PLATFORMS = ["tiktok", "instagram", "youtube"];
 
 /**

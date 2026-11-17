@@ -3,10 +3,10 @@
 Everything else is automated. Do these **in order**. Steps marked ⏱ have a waiting period, so start them first.
 
 > **Status of the code against these services:** the whole pipeline is tested end to end in DRY_RUN
-> (real Postgres, Redis, ffmpeg, RSS feeds). The TikTok / Instagram / YouTube / ElevenLabs / Anthropic /
-> Reddit integrations are written to each service's documented API and unit-tested against mocked HTTP, but
-> **have never run against a live account** (no credentials existed). Expect to fix small things during the
-> first live connection — that is what step 12's supervised week is for.
+> (real Postgres, Redis, ffmpeg, RSS feeds). The TikTok / Instagram / Facebook / YouTube / ElevenLabs /
+> Anthropic / Reddit integrations are written to each service's documented API and unit-tested against mocked
+> HTTP, but **have never run against a live account** (no credentials existed). Expect to fix small things
+> during the first live connection — that is what step 12's supervised week is for.
 
 ## 0. Decide where it runs
 A small VPS (2 vCPU / 4 GB RAM / 40 GB disk is enough; rendering is the heavy part) with Docker + Docker Compose, a domain name, and **HTTPS** in front of port 8080 (Caddy/Traefik/nginx).
@@ -75,6 +75,15 @@ Requires an Instagram **Professional (Business or Creator)** account.
 4. Needed permissions: `instagram_business_basic`, `instagram_business_content_publish`, `instagram_business_manage_insights`.
    Posting to **your own** account works in development mode; App Review is only needed to serve other people's accounts. Verify against Meta's current docs — they change often.
 5. Hard limit: Instagram allows **100 API-published posts per 24h**. Reels via API are capped at **90 s** (the pipeline caps videos at 60 s).
+
+## 7b. Facebook (optional)
+Requires a Facebook **Page** (not a personal profile) that you administer.
+1. [developers.facebook.com](https://developers.facebook.com) → My Apps → reuse the same app you created for Instagram (step 7), or create a new one (type *Business*) → add the **Facebook Login** product.
+2. Add your Facebook Page as a tester/role if the app is in development mode; set the redirect URI `https://your.domain/oauth/facebook/callback`.
+3. Copy the app ID/secret → `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`. Set `FACEBOOK_PAGE_ID` to the Page's numeric ID (Page → About → Page transparency, or the Graph API Explorer's `/me/accounts`).
+4. Needed permissions: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `read_insights`. App Review is only needed once you post to Pages you don't personally administer.
+5. ⚠️ Meta gives **no refresh token** for the Page token this flow derives — it's long-lived (~60 days) but must be reconnected by hand when it lapses (the dashboard's refresh-failure alert tells you when).
+6. Disabled by default (`config/schedule.json → platforms.facebook.enabled: false`) until you've connected it — flip it to `true` once step 9's "Connected accounts" shows Facebook green.
 
 ## 8. TikTok ⏱ audit takes weeks
 1. [developers.tiktok.com](https://developers.tiktok.com) → Manage apps → Create app → add products **Login Kit** and **Content Posting API** (enable *Direct Post*).

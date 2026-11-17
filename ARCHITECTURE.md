@@ -24,7 +24,7 @@ Anything that needs to exist is built here, so there is nothing to migrate.
 | 3 | Human reviews script/caption wording | LLM reviewer (separate prompt from writer) + deterministic policy rules | 4 |
 | 4 | Human fact-checks claims | Claim extraction → verified against ingested sources; unverifiable claims removed/rewritten | 4 |
 | 5 | **30-second human approval click** | Automated QA gate (factual, reviewer scores, technical, policy). Fail → regenerate ≤2× → `held` queue (never auto-publishes) | 4 |
-| 6 | Human uploads / downloads the video and posts it | Official-API publishers (TikTok, Instagram, YouTube) with automatic OAuth refresh | 5 |
+| 6 | Human uploads / downloads the video and posts it | Official-API publishers (TikTok, Instagram, YouTube, Facebook) with automatic OAuth refresh (Facebook's Page token excepted — it has none; see SETUP_CHECKLIST.md) | 5 |
 | 7 | Human chooses post time | Scheduler: peak-time slots + jitter, learned weekly | 1, 6 |
 | 8 | Human looks at analytics and adjusts | 1h/24h/7d analytics pulls → weekly weight update → `WEEKLY_REPORT.md`, with rollback | 6 |
 | 9 | Human watches for breakage | Alerting (Discord/Telegram/email/webhook) + read-only dashboard + health checks | 7, 8 |

@@ -1,4 +1,4 @@
-import type { AppConfig, Platform } from "../config/index.js";
+import { PLATFORMS, type AppConfig, type Platform } from "../config/index.js";
 import { liveReadinessProblems } from "../bootstrap.js";
 import type { Db } from "../db/db.js";
 import type { Alerter } from "../safety/alerts.js";
@@ -100,8 +100,14 @@ export async function runSmoke(opts: { cfg: AppConfig; db: Db; alerter?: Alerter
       if (!ch) throw new Error("token valid but no YouTube channel on this account");
       return `channel "${ch.snippet?.title}" reachable`;
     },
+    facebook: async (tk) => {
+      if (!tk.accountId) throw new Error("no Facebook page id stored; reconnect");
+      const j = await http(f, `https://graph.facebook.com/v23.0/${tk.accountId}?${new URLSearchParams({ fields: "name", access_token: tk.accessToken })}`);
+      if (!j.name) throw new Error("token valid but the Page could not be read");
+      return `page "${j.name}" reachable`;
+    },
   };
-  for (const p of ["tiktok", "instagram", "youtube"] as const) {
+  for (const p of PLATFORMS) {
     if (!cfg.schedule.platforms[p].enabled) {
       out.push(skipped(p, "disabled in config/schedule.json"));
       continue;

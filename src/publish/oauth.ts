@@ -5,7 +5,7 @@ import type { RefreshResult, TokenSet } from "./tokens.js";
 type FetchLike = typeof fetch;
 
 /**
- * OAuth helpers for the three platforms. Written to each platform's documented endpoints;
+ * OAuth helpers for the four platforms. Written to each platform's documented endpoints;
  * NOT yet exercised against live apps (no credentials exist) — see SETUP_CHECKLIST.md.
  * The owner completes consent once via GET /oauth/:platform/start on the dashboard server.
  */
@@ -13,6 +13,7 @@ export const SCOPES: Record<Platform, string> = {
   tiktok: "user.info.basic,video.publish,video.upload,video.list",
   instagram: "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_insights",
   youtube: "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
+  facebook: "pages_show_list,pages_read_engagement,pages_manage_posts,read_insights",
 };
 
 export function redirectUri(cfg: AppConfig, platform: Platform): string {
@@ -53,6 +54,10 @@ export function authUrl(cfg: AppConfig, platform: Platform, state: string): stri
     if (!e.INSTAGRAM_APP_ID) throw new Error("INSTAGRAM_APP_ID not set");
     return `https://www.instagram.com/oauth/authorize?${new URLSearchParams({ client_id: e.INSTAGRAM_APP_ID, redirect_uri: redirect, response_type: "code", scope: SCOPES.instagram, state })}`;
   }
+  if (platform === "facebook") {
+    if (!e.FACEBOOK_APP_ID) throw new Error("FACEBOOK_APP_ID not set");
+    return `https://www.facebook.com/v23.0/dialog/oauth?${new URLSearchParams({ client_id: e.FACEBOOK_APP_ID, redirect_uri: redirect, response_type: "code", scope: SCOPES.facebook, state })}`;
+  }
   if (!e.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID not set");
   return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({ client_id: e.GOOGLE_CLIENT_ID, redirect_uri: redirect, response_type: "code", scope: SCOPES.youtube, access_type: "offline", prompt: "consent", state })}`;
 }
@@ -87,6 +92,23 @@ export async function exchangeCode(cfg: AppConfig, platform: Platform, code: str
     if (!longRes.ok || long.error) throw new Error(`instagram long-lived exchange failed: ${JSON.stringify(long).slice(0, 300)}`);
     return { accessToken: long.access_token, expiresAt: addSeconds(long.expires_in, now), accountId: String(short.user_id ?? ""), scopes: SCOPES.instagram };
   }
+  if (platform === "facebook") {
+    const shortRes = await f(`https://graph.facebook.com/v23.0/oauth/access_token?${new URLSearchParams({ client_id: e.FACEBOOK_APP_ID ?? "", client_secret: e.FACEBOOK_APP_SECRET ?? "", redirect_uri: redirect, code })}`, { signal: AbortSignal.timeout(20_000) });
+    const short = (await shortRes.json()) as any;
+    if (!shortRes.ok || short.error) throw new Error(`facebook token exchange failed: ${JSON.stringify(short).slice(0, 300)}`);
+    // swap the short-lived user token for a long-lived one (~60 days)
+    const longRes = await f(`https://graph.facebook.com/v23.0/oauth/access_token?${new URLSearchParams({ grant_type: "fb_exchange_token", client_id: e.FACEBOOK_APP_ID ?? "", client_secret: e.FACEBOOK_APP_SECRET ?? "", fb_exchange_token: short.access_token })}`, { signal: AbortSignal.timeout(20_000) });
+    const long = (await longRes.json()) as any;
+    if (!longRes.ok || long.error) throw new Error(`facebook long-lived exchange failed: ${JSON.stringify(long).slice(0, 300)}`);
+    if (!e.FACEBOOK_PAGE_ID) throw new Error("FACEBOOK_PAGE_ID not set; cannot select which Page to post as");
+    // publish() needs the Page's own token, not the user's - look it up among the pages this user manages
+    const pagesRes = await f(`https://graph.facebook.com/v23.0/me/accounts?${new URLSearchParams({ access_token: long.access_token })}`, { signal: AbortSignal.timeout(20_000) });
+    const pages = (await pagesRes.json()) as any;
+    if (!pagesRes.ok || pages.error) throw new Error(`facebook /me/accounts failed: ${JSON.stringify(pages).slice(0, 300)}`);
+    const page = (pages.data ?? []).find((p: any) => p.id === e.FACEBOOK_PAGE_ID);
+    if (!page) throw new Error(`FACEBOOK_PAGE_ID ${e.FACEBOOK_PAGE_ID} is not among this user's managed Pages`);
+    return { accessToken: page.access_token, expiresAt: addSeconds(long.expires_in, now), accountId: e.FACEBOOK_PAGE_ID, scopes: SCOPES.facebook };
+  }
   const j = await postForm("https://oauth2.googleapis.com/token", { client_id: e.GOOGLE_CLIENT_ID ?? "", client_secret: e.GOOGLE_CLIENT_SECRET ?? "", code, grant_type: "authorization_code", redirect_uri: redirect }, f);
   if (!j.refresh_token) throw new Error("Google returned no refresh_token; revoke the app's access in your Google account and consent again (prompt=consent)");
   return { accessToken: j.access_token, refreshToken: j.refresh_token, expiresAt: addSeconds(j.expires_in, now), scopes: j.scope };
@@ -106,6 +128,13 @@ export function makeRefresher(cfg: AppConfig, f: FetchLike = fetch, now: () => D
       const j = (await res.json()) as any;
       if (!res.ok || j.error) throw new Error(`instagram refresh failed: ${JSON.stringify(j).slice(0, 300)}`);
       return { accessToken: j.access_token, expiresAt: addSeconds(j.expires_in, now()) };
+    }
+    if (platform === "facebook") {
+      // Page tokens derived this way are already long-lived (~60 days) and tied to the user token
+      // they came from; Meta gives no refresh_token/refresh endpoint for them. The only way to renew
+      // one is to redo consent - this throw routes into TokenStore's existing refresh-failure alert,
+      // which already tells the owner to reconnect (see RUNBOOK.md -> "Reconnect a social account").
+      throw new Error("Facebook Page tokens cannot be refreshed; reconnect the account (see RUNBOOK.md)");
     }
     if (!t.refreshToken) throw new Error("no Google refresh token stored");
     const j = await postForm("https://oauth2.googleapis.com/token", { client_id: e.GOOGLE_CLIENT_ID ?? "", client_secret: e.GOOGLE_CLIENT_SECRET ?? "", grant_type: "refresh_token", refresh_token: t.refreshToken }, f);

@@ -27,6 +27,7 @@ const PILLAR_KEYWORDS: Array<[Pillar, RegExp]> = [
   ["running", /\b(run|runner|running|marathon|half[- ]marathon|jog|5k|10k|parkrun|ultra|trail)\b/i],
   ["fitness", /\b(gym|workout|fitness|strength|lift|lifting|protein|yoga|hiit|mobility|training plan|exercise)\b/i],
   ["track_and_field", /\b(athletics|sprint|sprinter|hurdles|javelin|diamond league|world athletics|track|relay|decathlon|heptathlon|pole vault|high jump|long jump|shot put)\b/i],
+  ["football", /\b(football|soccer|premier league|champions league|uefa|fifa|goalkeeper|midfielder|striker|penalty shootout|offside|transfer window)\b/i],
 ];
 
 export function inferPillar(text: string, hinted: (Pillar | null)[]): Pillar {

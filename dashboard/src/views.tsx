@@ -56,7 +56,7 @@ export function StatusView({ overview }: { overview: Overview }): ReactNode {
       </tbody></table></div>
       <h3 className="sub">Connected accounts</h3>
       <div className="card"><table><thead><tr><th>Platform</th><th>Account</th><th>Token expires</th><th>Status</th></tr></thead><tbody>
-        {["tiktok", "instagram", "youtube"].map((p) => {
+        {["tiktok", "instagram", "youtube", "facebook"].map((p) => {
           const a = overview.connectedAccounts.find((x) => x.platform === p);
           return <tr key={p}><td>{p}</td><td>{a?.account_name ?? "–"}</td><td>{a?.expires_at ? when(a.expires_at) : "–"}</td><td>{a ? (a.last_refresh_error ? <span className="pill bad">refresh failing</span> : <span className="pill ok">connected</span>) : <ConnectButton platform={p} />}</td></tr>;
         })}

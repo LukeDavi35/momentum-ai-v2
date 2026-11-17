@@ -106,6 +106,7 @@ const HASHTAGS: Record<string, string[]> = {
   fitness: ["fitness", "workout", "gym", "healthyhabits"],
   track_and_field: ["trackandfield", "athletics", "sprint", "worldathletics"],
   sports_news: ["sports", "sportsnews", "breakingnews", "athletes"],
+  football: ["football", "soccer", "premierleague", "footballnews"],
 };
 
 /** Compilation script: hook, one beat per story (its lead headline, cited to that story's first factual source), sign-off. */

@@ -21,6 +21,7 @@ export const THEMES: Record<Template, Theme> = {
   training_tip: { label: "TRAINING TIP", c0: "0x052e22", c1: "0x0d9488", accentBgr: "9DF5C7" },
   quick_explainer: { label: "QUICK EXPLAINER", c0: "0x14123a", c1: "0x4338ca", accentBgr: "FFD36B" },
   daily_highlights: { label: "DAILY HIGHLIGHTS", c0: "0x1a0b2e", c1: "0x0f766e", accentBgr: "5EE7FF" },
+  milestone_moment: { label: "MILESTONE MOMENT", c0: "0x1a1203", c1: "0xca8a04", accentBgr: "FFE066" },
 };
 
 const WHITE = "&H00FFFFFF";
@@ -66,7 +67,7 @@ export function buildVisualAss(template: Template, script: ScriptDoc, beats: Bea
       add(0, beatStart, span.end, "StoryTitle", `{\\fad(250,0)}${escapeAss(seg.headline)}`);
       if (seg.footage) add(0, span.start, span.end, "Credit", `${escapeAss(seg.footage.credit)} · ${escapeAss(ILLUSTRATIVE_NOTE)}`);
     });
-  } else if (template === "stat_spotlight" && script.visual.stat) {
+  } else if ((template === "stat_spotlight" || template === "milestone_moment") && script.visual.stat) {
     add(0, second, durationS, "Stat", `{\\fad(250,0)\\fscx70\\fscy70\\t(0,300,\\fscx100\\fscy100)}${escapeAss(script.visual.stat)}`, "0,0,0");
     if (script.visual.statLabel) add(0, second + 0.2, durationS, "StatLabel", `{\\fad(300,0)\\pos(540,1180)}${escapeAss(script.visual.statLabel)}`);
   } else {

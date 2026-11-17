@@ -39,6 +39,7 @@ const PILLAR_FALLBACK: Record<Pillar, string> = {
   fitness: "gym workout",
   track_and_field: "sprinter track",
   sports_news: "stadium crowd",
+  football: "soccer match",
 };
 
 /**

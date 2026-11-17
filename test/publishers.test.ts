@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { FacebookPublisher } from "../src/publish/publishers/facebook.js";
 import { InstagramPublisher } from "../src/publish/publishers/instagram.js";
 import { TikTokPublisher } from "../src/publish/publishers/tiktok.js";
 import { YouTubePublisher } from "../src/publish/publishers/youtube.js";
@@ -14,7 +15,7 @@ const coverPath = join(dir, "cover.jpg");
 writeFileSync(videoPath, Buffer.alloc(2048, 1));
 writeFileSync(coverPath, Buffer.alloc(64, 2));
 
-const meta = (platform: "tiktok" | "instagram" | "youtube"): PlatformMetadata => ({
+const meta = (platform: "tiktok" | "instagram" | "youtube" | "facebook"): PlatformMetadata => ({
   platform,
   title: "Kipyegon's record",
   caption: "Record night in Paris\n#athletics\nAI-assisted video with a synthetic voiceover.",
@@ -22,7 +23,7 @@ const meta = (platform: "tiktok" | "instagram" | "youtube"): PlatformMetadata =>
   aiDisclosure: { applied: true, line: "AI-assisted video with a synthetic voiceover.", nativeFlag: platform === "tiktok" ? "is_aigc" : platform === "youtube" ? "containsSyntheticMedia" : "none" },
   sourceCredit: "Source: BBC Sport",
 });
-const req = (platform: "tiktok" | "instagram" | "youtube", assertLive = vi.fn(async () => {})): PublishRequest & { assertLive: ReturnType<typeof vi.fn> } => ({
+const req = (platform: "tiktok" | "instagram" | "youtube" | "facebook", assertLive = vi.fn(async () => {})): PublishRequest & { assertLive: ReturnType<typeof vi.fn> } => ({
   contentId: "c1",
   videoPath,
   coverPath,
@@ -199,6 +200,71 @@ describe("InstagramPublisher", () => {
     expect(n).toBe(2);
     expect(calls[1]!.url).not.toContain("ig_reels_video_view_total_time");
     expect(m).toMatchObject({ views: 5000, saves: 40, shares: 12, avgViewDurationS: 9.5 });
+  });
+});
+
+describe("FacebookPublisher", () => {
+  const tok = async () => ({ accessToken: "FBT", pageId: "9991" });
+  const happy = (createStatus = 200, statuses = ["processing", "ready"]) => {
+    let polls = 0;
+    return mockFetch([
+      [/\/9991\/videos$/, () => (createStatus === 200 ? json({ id: "v999" }) : new Response("upstream timeout", { status: createStatus }))],
+      [/\/v999\?/, () => json({ status: { video_status: statuses[Math.min(polls++, statuses.length - 1)] }, permalink_url: "/9991/videos/v999/" })],
+    ]);
+  };
+
+  it("creates the Page video post (one call does create+publish), waits for processing, and returns the permalink", async () => {
+    const { f, calls } = happy();
+    const r = req("facebook");
+    const out = await new FacebookPublisher(tok, f, 0).publish(r);
+    expect(out).toEqual({ externalId: "v999", url: "https://www.facebook.com/9991/videos/v999/" });
+    const create = calls.find((c) => /\/9991\/videos$/.test(c.url))!;
+    expect(create.body).toMatchObject({ file_url: r.mediaUrl, description: r.meta.caption, access_token: "FBT" });
+  });
+
+  it("gates right before the create call — the one irreversible action here", async () => {
+    const { f, calls } = happy();
+    let callsAtGate = -1;
+    const r = req("facebook", vi.fn(async () => void (callsAtGate = calls.length)));
+    await new FacebookPublisher(tok, f, 0).publish(r);
+    expect(callsAtGate).toBe(0); // nothing was called yet; the create POST is the very next call
+    expect(calls[0]!.url).toMatch(/\/9991\/videos$/);
+  });
+
+  it("needs a public mediaUrl", async () => {
+    const { f } = happy();
+    await expect(new FacebookPublisher(tok, f, 0).publish({ ...req("facebook"), mediaUrl: undefined })).rejects.toMatchObject({ retryable: false });
+  });
+
+  it("a 4xx from the create call fails without retrying", async () => {
+    const { f } = happy(400);
+    await expect(new FacebookPublisher(tok, f, 0).publish(req("facebook"))).rejects.toMatchObject({ retryable: false, ambiguous: false });
+  });
+
+  it("a 5xx from the create call is AMBIGUOUS and must not be auto-retried", async () => {
+    const { f } = happy(502);
+    await expect(new FacebookPublisher(tok, f, 0).publish(req("facebook"))).rejects.toMatchObject({ retryable: false, ambiguous: true });
+  });
+
+  it("a video processing error fails (the post already exists, so this is ambiguous)", async () => {
+    const { f } = happy(200, ["error"]);
+    await expect(new FacebookPublisher(tok, f, 0).publish(req("facebook"))).rejects.toMatchObject({ retryable: false, ambiguous: true });
+  });
+
+  it("still processing when polling gives up: returns the id with a warning instead of throwing", async () => {
+    const { f } = happy(200, ["processing"]);
+    const out = await new FacebookPublisher(tok, f, 0, 2).publish(req("facebook"));
+    expect(out.externalId).toBe("v999");
+    expect(out.warnings?.[0]).toMatch(/still processing/);
+  });
+
+  it("returns real metrics only; unavailable ones stay undefined (never faked)", async () => {
+    const { f } = mockFetch([
+      [/\/v999\?/, () => json({ likes: { summary: { total_count: 40 } }, comments: { summary: { total_count: 3 } }, shares: { count: 5 }, video_insights: { data: [{ name: "total_video_views", values: [{ value: 1200 }] }] } })],
+    ]);
+    const m = await new FacebookPublisher(tok, f).metrics("v999");
+    expect(m).toMatchObject({ views: 1200, likes: 40, comments: 3, shares: 5 });
+    expect(m.avgViewDurationS).toBeUndefined();
   });
 });
 

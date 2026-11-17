@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import type { AppConfig, Platform } from "../config/index.js";
 import { DryRunPublisher } from "./publishers/dryrun.js";
+import { FacebookPublisher } from "./publishers/facebook.js";
 import { InstagramPublisher } from "./publishers/instagram.js";
 import { TikTokPublisher } from "./publishers/tiktok.js";
 import { YouTubePublisher } from "./publishers/youtube.js";
@@ -11,7 +12,12 @@ import type { Publisher } from "./types.js";
 export function buildPublishers(cfg: AppConfig, tokens: TokenStore | undefined, f: typeof fetch = fetch): Record<Platform, Publisher> {
   if (cfg.env.DRY_RUN) {
     const out = join(dirname(cfg.env.MEDIA_DIR), "dryrun");
-    return { tiktok: new DryRunPublisher("tiktok", out), instagram: new DryRunPublisher("instagram", out), youtube: new DryRunPublisher("youtube", out) };
+    return {
+      tiktok: new DryRunPublisher("tiktok", out),
+      instagram: new DryRunPublisher("instagram", out),
+      youtube: new DryRunPublisher("youtube", out),
+      facebook: new DryRunPublisher("facebook", out),
+    };
   }
   if (!tokens) throw new Error("live publishing needs a TokenStore (TOKEN_ENC_KEY must be set)");
   return {
@@ -22,5 +28,10 @@ export function buildPublishers(cfg: AppConfig, tokens: TokenStore | undefined, 
       return { accessToken: t.accessToken, accountId: t.accountId };
     }, f),
     youtube: new YouTubePublisher(async () => (await tokens.getValidAccessToken("youtube")).accessToken, f),
+    facebook: new FacebookPublisher(async () => {
+      const t = await tokens.getValidAccessToken("facebook");
+      if (!t.accountId) throw new Error("Facebook page id missing; reconnect the account");
+      return { accessToken: t.accessToken, pageId: t.accountId };
+    }, f),
   };
 }

@@ -44,9 +44,10 @@ export function checkMetadata(platform: Platform, m: PlatformMetadata): PolicyVi
   if (!m.aiDisclosure.applied || !m.caption.includes(m.aiDisclosure.line)) v.push({ rule: "ai_disclosure", where, excerpt: "AI disclosure line missing from the post text" });
   if (platform === "tiktok") {
     if (m.caption.length > LIMITS.tiktok.caption) v.push({ rule: "limits", where, excerpt: `caption ${m.caption.length} > ${LIMITS.tiktok.caption} chars` });
-  } else if (platform === "instagram") {
-    if (m.caption.length > LIMITS.instagram.caption) v.push({ rule: "limits", where, excerpt: `caption ${m.caption.length} > ${LIMITS.instagram.caption} chars` });
-    if (m.hashtags.length > LIMITS.instagram.maxHashtags) v.push({ rule: "limits", where, excerpt: `${m.hashtags.length} hashtags > ${LIMITS.instagram.maxHashtags}` });
+  } else if (platform === "instagram" || platform === "facebook") {
+    const limits = platform === "facebook" ? LIMITS.facebook : LIMITS.instagram;
+    if (m.caption.length > limits.caption) v.push({ rule: "limits", where, excerpt: `caption ${m.caption.length} > ${limits.caption} chars` });
+    if (m.hashtags.length > limits.maxHashtags) v.push({ rule: "limits", where, excerpt: `${m.hashtags.length} hashtags > ${limits.maxHashtags}` });
   } else {
     if (m.title.length === 0) v.push({ rule: "limits", where, excerpt: "empty YouTube title" });
     if (m.title.length > LIMITS.youtube.title) v.push({ rule: "limits", where, excerpt: `title ${m.title.length} > ${LIMITS.youtube.title} chars` });
